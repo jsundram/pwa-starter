@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+
+<!-- viewport-fit=cover pairs with the safe-area padding in styles.css to keep content clear of
+     the notch / home indicator when installed. Forgetting the viewport tag entirely is a classic
+     late fix — set it first. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">   <!-- no white flash before CSS in dark mode -->
+
+<!-- Browser-UI tint, one per scheme. EDIT the colors to match styles.css. -->
+<meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
+
+<!-- Install polish. iOS reads these + apple-touch-icon and mostly ignores the manifest;
+     Android reads the manifest. Ship both. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="APP">   <!-- EDIT: home-screen label -->
+<link rel="manifest" href="./manifest.json">
+
+<!-- Icons live in assets/. Run scripts/make-icons.sh to generate the PNGs from icon.svg. -->
+<link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+<link rel="icon" type="image/png" href="./assets/icon-192.png">
+<link rel="apple-touch-icon" href="./assets/icon-180.png">
+
+<title>APP — tagline</title>   <!-- EDIT -->
+<meta name="description" content="One sentence on what this is.">   <!-- EDIT -->
+
+<!-- Link previews. og:image MUST be an ABSOLUTE https URL to a RASTER (PNG/JPG), 1200x630, and
+     kept reasonably small (compress it). iMessage/WhatsApp/Slack reject relative paths + SVG. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="APP">
+<meta property="og:title" content="APP — tagline">
+<meta property="og:description" content="One sentence on what this is.">
+<meta property="og:url" content="https://USER.github.io/APP/">              <!-- EDIT: absolute -->
+<meta property="og:image" content="https://USER.github.io/APP/assets/og.png">  <!-- EDIT: absolute -->
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Describe the share card for screen readers.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="APP — tagline">
+<meta name="twitter:description" content="One sentence on what this is.">
+<meta name="twitter:image" content="https://USER.github.io/APP/assets/og.png">   <!-- EDIT: absolute -->
+<link rel="canonical" href="https://USER.github.io/APP/">                        <!-- EDIT: absolute -->
+
+<!-- Webfonts are optional. If used, preconnect here AND cache them in sw.js so the type survives
+     offline (webfonts aren't iOS system fonts — an offline open falls back to Times/Courier).
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+-->
+
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main>
+  <header class="head">
+    <h1>APP</h1>
+    <span id="ver" class="ver" hidden></span>   <!-- app.js stamps the installed SW version here -->
+  </header>
+
+  <section id="app" class="card">
+    <p>Replace me. This shell is installable, offline-ready, themeable, and shareable out of the box.</p>
+  </section>
+</main>
+
+<script src="./ping.js"></script>   <!-- optional analytics; harmless until you set URL_ in it -->
+<script src="./app.js"></script>
+</body>
+</html>

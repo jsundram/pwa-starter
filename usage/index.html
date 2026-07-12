@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">   <!-- a dashboard is public-by-URL but shouldn't be indexed -->
+<title>APP — usage</title>
+<link rel="icon" type="image/svg+xml" href="../assets/icon.svg">
+<style>
+  :root{ --bg:#f5f5f5; --card:#fff; --ink:#1a1a1a; --muted:#5f6b6b; --line:#ddd; --accent:#2196f3; }
+  @media (prefers-color-scheme: dark){ :root{ --bg:#1a1a1a; --card:#2d2d2d; --ink:#ececec; --muted:#9aa4a4; --line:#3d4444; --accent:#64b5f6; } }
+  *{ box-sizing:border-box; margin:0; padding:0 }
+  body{ background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,sans-serif; line-height:1.45;
+        padding:calc(20px + env(safe-area-inset-top)) 16px 40px; }
+  main{ max-width:720px; margin:0 auto }
+  h1{ font-size:26px; letter-spacing:-.01em }
+  .sub{ color:var(--muted); font-size:13px; margin:2px 0 20px }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:24px }
+  .stat{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px }
+  .stat b{ display:block; font-size:28px; letter-spacing:-.02em }
+  .stat span{ color:var(--muted); font-size:12px }
+  section{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px }
+  h2{ font-size:14px; margin-bottom:12px }
+  .row{ display:flex; align-items:center; gap:8px; margin:4px 0; font-size:13px }
+  .row .lbl{ width:120px; flex:none; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+             font-variant-numeric:tabular-nums }
+  .bar{ height:14px; background:var(--accent); border-radius:3px; min-width:2px }
+  .row .n{ color:var(--muted); font-variant-numeric:tabular-nums }
+  .hours{ display:flex; align-items:flex-end; gap:2px; height:80px }
+  .hours div{ flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:1px }
+  .hours-ax{ display:flex; justify-content:space-between; color:var(--muted); font-size:10px; margin-top:4px }
+  code{ font-family:ui-monospace,monospace; font-size:12px }
+</style>
+</head>
+<body>
+<main>
+  <h1>APP · usage</h1>
+  <div class="sub" id="sub">loading…</div>
+  <div class="grid" id="stats"></div>
+  <section><h2>Opens by day</h2><div id="days"></div></section>
+  <section><h2>Rhythm of day (UTC hour)</h2><div class="hours" id="hours"></div>
+    <div class="hours-ax"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div></section>
+  <section><h2>Pages</h2><div id="pages"></div></section>
+  <section><h2>Top users</h2><div id="users"></div>
+    <div class="sub" style="margin:8px 0 0">uids are one-way hashes. To show names, join against your
+    roster at runtime and reverse with the same SHA-256 recipe (see CLAUDE.md §Analytics) — never
+    commit the mapping.</div></section>
+</main>
+
+<script>
+  // A directory URL (/usage/) would read as "index" in ping.js — name this page before loading it.
+  window.APP_PAGE = "usage";
+</script>
+<script src="./crunch.js"></script>
+<script>
+  // EDIT: your pings tab's Publish-to-web CSV URL (Sheet -> File -> Share -> Publish to web ->
+  // that tab, CSV). Keep the sheet itself private; only that one tab is published.
+  const PINGS_CSV = "";
+  const CACHE = "app-usage";
+
+  const $ = id => document.getElementById(id);
+  const bars = (el, items, label, val, max) => {
+    el.innerHTML = "";
+    const m = max || Math.max(1, ...items.map(val));
+    for (const it of items) {
+      const row = document.createElement("div"); row.className = "row";
+      row.innerHTML = `<span class="lbl">${label(it)}</span>
+        <div class="bar" style="width:${(val(it) / m * 100).toFixed(1)}%"></div><span class="n">${val(it)}</span>`;
+      el.appendChild(row);
+    }
+  };
+
+  function paint(d, stamp) {
+    $("sub").textContent = (d.firstDay ? `${d.firstDay} → ${d.lastDay} · ` : "") +
+      `${d.total} opens${d.deduped ? ` (${d.deduped} dupes dropped)` : ""}${stamp ? " · " + stamp : ""}`;
+    $("stats").innerHTML = [
+      ["Opens", d.total], ["Users", d.users], ["Anonymous", d.anon], ["Pages", d.pages.length],
+    ].map(([s, b]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("");
+
+    const dayItems = Object.entries(d.byDay).sort().map(([k, n]) => ({ k, n }));
+    bars($("days"), dayItems, x => x.k.slice(5), x => x.n);
+
+    const hmax = Math.max(1, ...d.byHour);
+    $("hours").innerHTML = d.byHour.map(n => `<div style="height:${(n / hmax * 100).toFixed(1)}%" title="${n}"></div>`).join("");
+
+    bars($("pages"), d.pages, x => x.page, x => x.n);
+    bars($("users"), d.topUsers.slice(0, 20), x => `<code>${x.uid || "—"}</code>`, x => x.n);
+  }
+
+  const now = () => { const t = new Date(); return `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`; };
+
+  // stale-while-revalidate: paint the cached crunch instantly, then refresh from the network.
+  try { const c = JSON.parse(localStorage.getItem(CACHE)); if (c) paint(c.d, c.stamp + " (cached)"); } catch {}
+  async function refresh() {
+    if (!PINGS_CSV) { if (!localStorage.getItem(CACHE)) $("sub").textContent = "Set PINGS_CSV in usage/index.html."; return; }
+    try {
+      const csv = await (await fetch(PINGS_CSV, { cache: "no-store" })).text();
+      const d = UsageCrunch.crunch(csv), stamp = now();
+      localStorage.setItem(CACHE, JSON.stringify({ d, stamp }));
+      paint(d, stamp);
+    } catch { /* offline: keep the cached paint */ }
+  }
+  refresh();
+  addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
