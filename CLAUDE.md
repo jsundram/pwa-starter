@@ -41,6 +41,8 @@ into *their* app. Do this in order:
    | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` (keep in sync!) |
    | `app-token` | a random token | ping.js + scripts/analytics.gs (must match) |
    | `app-pings` / `app-me` / `app-usage` | localStorage keys (optional rename) | ping.js, usage/index.html |
+   | `app-theme` / `app-data:` | localStorage keys (optional rename) | theme.js **and** index.html pre-paint script (keep in sync!); data.js |
+   | `DATA_URL` empty | your cross-origin data endpoint | app.js (empty = disabled, like ping.js's `URL_`) |
 
 3. **Draw the icon.** Replace `assets/icon.svg` (and `assets/og.svg`) with something real, then run
    `scripts/make-icons.sh` + `scripts/make-og.sh`. Until you do, the head references PNGs that don't
@@ -82,7 +84,10 @@ This is exactly the Haydn / Boccherini use case. Known starting points for those
 Deployed files live at the repo root (so GitHub Pages "deploy from root" just works and every path
 stays relative). Everything that is *not* shipped to the browser is segregated:
 
-- **Root** = the app: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `ping.js`.
+- **Root** = the app: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `ping.js`, and
+  three small reference helpers `app.js` wires together — `theme.js` (three-state theme + the
+  JS-baked-color contract), `data.js` (stale-while-revalidate with a timeout), and the optional
+  `pullToRefresh.js` (standalone-only gesture; delete it + its CSS if unused).
 - **`assets/`** = icons + share card. `icon.svg`/`og.svg` are the **sources of truth**; the PNGs
   are generated, never hand-edited.
 - **`usage/`** = the self-contained analytics dashboard (its own page, precached, `noindex`).
@@ -192,7 +197,7 @@ SVG **data-URI** used for `apple-touch-icon` *and* a **runtime-generated manifes
 builds it as a Blob URL) — zero icon files. This skeleton uses real files since multi-page apps cache
 them anyway.
 
-### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `sw-lint.py`
+### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
 - The SW precaches `SHELL` and serves it cache-first (or network-first with cache fallback).
 - **Bump `V` on every shell-file change.** A new `V` evicts the stale cache on `activate`. Forget it
@@ -203,15 +208,58 @@ The one that bites hardest and latest.
   `caches.keys()`, fetches the deployed `sw.js` (`?_=`+`no-store` to dodge both caches), and shows a
   tappable "installed → latest" tag when the server is ahead; tapping deletes all caches + reloads.
 - Let **cross-origin data** (your APIs) pass straight through — don't cache it in the SW; do
-  stale-while-revalidate in the app (localStorage) instead.
+  stale-while-revalidate in the app (localStorage) instead. Time-box the network read with a cache
+  fallback so a flaky connection degrades to last-known data instead of hanging: race the fetch
+  against a short timeout (quartet-log uses ~5s), and on timeout/failure serve the localStorage copy
+  and *flag it stale in the UI* ("loaded from cache, N min old") so the user knows they're offline.
+  The skeleton's `data.js` is that helper — `Data.load()` does the race, aborts the fetch on timeout,
+  and returns `{data, stale, ageMs}`; `app.js` reads it and shows the stale tag.
 - **Webfonts survive offline only if the SW caches them** — they aren't iOS system fonts; without the
   cache an offline home-screen open falls back to Times/Courier.
+- **Have a build step? Content-hash the shell instead of hand-bumping `V`.** The `V`-bump above is the
+  discipline for a no-build app; if a bundler already emits your files, rename `app.[hash].js` /
+  `styles.[hash].css` per build, rewrite the references in the *deployed* HTML (leave the source on
+  stable names), and derive the SW cache name from those hashes. The cache version then moves
+  automatically on every real change — nothing to forget, no `sw-lint` needed. quartet-log does exactly
+  this: esbuild output + a `sw.js` template whose `V` is `bundlehash-csshash`, and it folds its data
+  version into the bundle via a `--define` so even a pure data change busts the cache. Same effect as
+  `V`, minus the human.
 
 ### Manifest / installability — `manifest.json`
 `start_url:"./"` + relative `scope` so it works as a project page. Include a 512 `maskable` icon or
-Android crops your square badly. Note: an installed copy opens `start_url` many times — so the page
-you want opened *daily* should be the root, and a "read once" invite/about page should be a *separate*
-URL you send, not the root.
+Android crops your square badly — and make the maskable a **full-bleed** tile (background fill, logo
+inside the center-80% safe zone), not your transparent favicon, or the mask eats the edges. Note: an
+installed copy opens `start_url` many times — so the page you want opened *daily* should be the root,
+and a "read once" invite/about page should be a *separate* URL you send, not the root.
+
+**Seed per-device config with a link, not a re-typed form.** A no-backend app that needs a scrap of
+setup (an API key, a data-source URL) faces an awful phone UX: retype it on a tiny keyboard. Instead,
+read a `?data=…`/`?key=…` param on first load, persist it to `localStorage`, then strip it from the
+URL — and give the *desktop* a "copy setup link" button that builds that URL. Configure once on the
+big screen, AirDrop/iMessage the link to the phone, open it, done. quartet-log seeds its Google-Sheet
+URL exactly this way. Flip side of the note above: a link that carries state **is** a send-once URL —
+don't make it the `start_url` an installed copy reopens daily.
+
+Left as prose, not a shipped file — it's ~10 lines and only some apps need it. But the two subtleties
+that cost a debugging session are worth pinning down: strip the param with `history.replaceState`
+(not `location.search = …`, which reloads and adds a history entry), and strip it **before** anything
+reads the URL — a `fetch` leaks it in the `Referer` header, analytics log `location.href`. So run this
+first thing at boot:
+
+```js
+// First load: adopt ?data=… (or ?key=…), then scrub it from the URL.
+function consumeConfigParam(){
+  const u = new URL(location.href);
+  const v = u.searchParams.get("data");
+  if(!v) return;
+  if(isValid(v)) localStorage.setItem("app-data-url", v);   // validate BEFORE you trust it
+  u.searchParams.delete("data");
+  history.replaceState(null, "", u.pathname + u.search + u.hash);   // no reload, no history entry
+}
+
+// Desktop "copy setup link" builder — encodeURIComponent so the value survives the URL.
+const buildSetupLink = v => `${location.origin}${location.pathname}?data=${encodeURIComponent(v)}`;
+```
 
 ### Mobile — head + `styles.css`
 - `viewport-fit=cover` **and** `env(safe-area-inset-*)` padding — one without the other clips content
@@ -221,13 +269,33 @@ URL you send, not the root.
 - Target *real* touch devices with `@media (hover:none) and (pointer:coarse) and (max-width:800px)`
   when you want phone-specific sizing — a bare `max-width` also catches a shrunk desktop window.
 - Fluid sizing with `clamp(min, vw, max)` scales cleanly desktop→tablet without a pile of breakpoints.
-- iOS home-screen apps **resume** rather than reload — re-pull data on `visibilitychange`.
+- iOS home-screen apps **resume** rather than reload — re-pull data on `visibilitychange`. That's the
+  floor, not the ceiling: an installed app has **no browser chrome, so no reload button** — add a
+  **pull-to-refresh** gesture *and* a **foreground poll** (a `setInterval`) so a left-open app freshens
+  itself. Gate all three on `document.visibilityState === 'visible'` **and** a staleness threshold so a
+  backgrounded tab never fetches and a fresh one isn't re-hit. The skeleton ships all three:
+  `pullToRefresh.js` (the gesture, standalone-only) plus the gated `maybeRefresh()` poll and resume
+  re-pull in `app.js`. Background Sync isn't an option — iOS standalone doesn't support it.
 
-### Dark mode — `styles.css`
+### Dark mode — `styles.css`, `theme.js`
 Two entry points, both cheap: `@media (prefers-color-scheme: dark)` (what users get) and a `.dark`
 class (force it for screenshots / a toggle / visual-regression baselines). Drive everything off CSS
 custom properties so a mode is a variable swap, not a second stylesheet. Watch source order — a later
 `@media print` block can clobber your dark vars; reset deliberately. Check contrast in **both** modes.
+
+**The gotcha for canvas / SVG / d3 apps:** the variable swap only re-styles what the browser paints
+*from CSS*. Any color you read **into JS** at render time — `ctx.fillStyle`, a d3
+`.attr('fill', getCssColor('--accent'))`, a baked color scale — is frozen at the value it held when it
+ran, and a mode flip won't touch it. So set a contract: components that bake colors expose a
+`rerender()`, and one `onThemeChange()` — fired by both the toggle **and** the `matchMedia` listener
+(so auto-mode users following the OS also update) — invalidates any color cache *first*, then calls
+each `rerender()`. Purely `var(--…)`-driven components update for free; only the JS-baked ones need
+plumbing. quartet-log's calendar and dashboard are the worked example. Bonus: a persisted three-state
+toggle (`auto`/`light`/`dark`, default `auto`) plus a pre-paint inline `<script>` that stamps
+`data-theme` before first paint kills the dark-mode FOUC without waiting for the bundle. The
+skeleton's `theme.js` implements the contract — `subscribe()`, `getCssColor()`, and an
+`invalidateColorCache()` that `notify()` fires *before* subscribers; `app.js`'s `onThemeChange()` is
+the consumer (repaint from cached data, no refetch). The pre-paint stamp lives in `index.html`.
 
 ### Analytics — cheap, private, no third party — `ping.js`, `scripts/analytics.gs`, `usage/`
 When the audience is small and known, **a log you own beats a dashboard you rent.**
@@ -274,6 +342,14 @@ rediscover the dependency list.
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path.
 - **Manifest but no `apple-*` metas** → Android installs clean, iOS install looks broken.
+- **Blank `name` / wrong-path icon in the manifest** → Android installs an unnamed app with a broken
+  glyph. It fails silently (no build error); open the manifest and confirm every icon URL 200s.
+- **Transparent favicon reused as the `maskable` icon** → Android's mask crops into the artwork. Give
+  maskable its own full-bleed tile.
+- **JS-baked color (canvas/d3) after a theme flip** → frozen at the old value; the CSS-var swap can't
+  reach it. Re-render on theme change; CSS-var elements update free.
+- **Retyping a config URL on a phone keyboard** → seed it with a `?data=` link + a desktop "copy setup
+  link" button instead.
 - **iOS resumes, doesn't reload** → stale data unless you re-pull on `visibilitychange`.
 - **Print with dark-mode CSS** → wastes ink; links unclickable on paper. `@media print` resets.
 - **Analytics: plain Save instead of redeploy** → you're editing a script nobody's calling.

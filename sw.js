@@ -9,9 +9,10 @@
 // waiting for a SW swap; falls back to cache offline); big static assets (images) stay cache-first
 // for speed — a V bump is what refreshes them. Cross-origin data (your APIs) passes straight through.
 
-const V = "app-v1";   // <-- BUMP ON EVERY SHELL CHANGE
+const V = "app-v2";   // <-- BUMP ON EVERY SHELL CHANGE
 const SHELL = [
-  "./", "./index.html", "./styles.css", "./app.js", "./ping.js", "./manifest.json",
+  "./", "./index.html", "./styles.css",
+  "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./ping.js", "./manifest.json",
   "./assets/icon.svg", "./assets/icon-180.png", "./assets/icon-192.png", "./assets/icon-512.png",
   "./usage/", "./usage/index.html", "./usage/crunch.js",
   // ...add every file the app needs offline: more pages, data JSON, self-hosted fonts.
