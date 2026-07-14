@@ -41,6 +41,12 @@ self.addEventListener("fetch", e => {
   // Cross-origin data (your APIs, third-party JSON): straight to network, don't touch the cache.
   if (u.origin !== location.origin) return;
 
+  // The SW must never intercept or cache its own script: checkVer() probes
+  // ./sw.js?_=<ts> to read the live version, and caching those probes both bloats
+  // the cache (a new dead entry per resume) and — if .js is ever made cache-first
+  // with ignoreSearch — serves a stale version back, wedging the "tap to update" tag.
+  if (u.pathname.endsWith("/sw.js")) return;
+
   // Same-origin: HTML/JS/JSON + navigations → network-first; other assets (images) → cache-first.
   const live = e.request.mode === "navigate" || u.pathname.endsWith("/") || /\.(html|js|json)$/.test(u.pathname);
   if (live) {

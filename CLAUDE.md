@@ -338,6 +338,10 @@ rediscover the dependency list.
 - **Relative or SVG `og:image`** → no preview in iMessage/WhatsApp. Absolute + raster.
 - **OG image too big** → some scrapers skip it. Compress.
 - **Forgot to bump `V`** → fix ships to the repo, never to phones. `sw-lint.py` guards it.
+- **SW caches its own version probe** → `checkVer()` fetches `./sw.js?_=<ts>` on every resume; if the
+  fetch handler caches it, each resume writes a dead unique-key entry (unbounded growth between
+  deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
+  lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path.
