@@ -107,7 +107,11 @@ logic in the HTML beyond loading the scripts.
 ## The pre-share checklist
 
 The rubric for both workflows. None of it is hard; all of it is easy to forget until someone texts
-the link and gets a grey box, or installs it and it won't open on a plane.
+the link and gets a grey box, or installs it and it won't open on a plane. And there's no longer a
+robot to catch these for you — Lighthouse **removed its PWA category in v12 (May 2024)** and
+PageSpeed dropped it too (Chrome no longer even requires a service worker for installability), so no
+automated audit grades a PWA anymore. This checklist *is* the audit. (A service worker is now about
+*offline*, not installability — but iOS still needs one to open on a plane, so it stays mandatory here.)
 
 **Share / link preview** — `index.html` head, `scripts/make-og.sh`
 - [ ] `<title>` + `meta[description]` are real (not a default)
@@ -246,12 +250,22 @@ The one that bites hardest and latest.
   automatically on every real change — nothing to forget, no `sw-lint` needed. quartet-log does exactly
   this: esbuild output + a `sw.js` template whose `V` is `bundlehash-csshash`, and it folds its data
   version into the bundle via a `--define` so even a pure data change busts the cache. Same effect as
-  `V`, minus the human.
+  `V`, minus the human. This is exactly what the framework toolchains automate: **Workbox** (via
+  `vite-plugin-pwa`'s `injectManifest`) globs the build output and injects `self.__WB_MANIFEST` — a
+  precache list where every entry carries a per-file revision hash, so cache invalidation keys off
+  those hashes with nothing to bump. Read the skeleton's `V`-bump + `sw-lint` as the **hand-rolled
+  version of that**: the same content-revisioning discipline, done by a human because there's no build
+  to do it. (Workbox 7.x / vite-plugin-pwa 0.20.x as of 2024–25.)
 
 ### Manifest / installability — `manifest.json`
 `start_url:"./"` + relative `scope` so it works as a project page. Include a 512 `maskable` icon or
 Android crops your square badly — and make the maskable a **full-bleed** tile (background fill, logo
-inside the center-80% safe zone), not your transparent favicon, or the mask eats the edges. Note: an
+inside the center-80% safe zone), not your transparent favicon, or the mask eats the edges. The spec
+is concrete: the guaranteed-visible safe zone is a **circle of radius 40% of the icon width** (= the
+central 80%), and the tile needs an **opaque background covering the whole area** or the mask crops
+into art; set the manifest icon's `"purpose": "maskable"` (or `"any maskable"` on one icon to serve
+both). Preview the crop across the OS mask shapes (circle / squircle / teardrop) at **maskable.app**
+before shipping — it's a GUI eyeball-check, not something `make-icons.sh` can automate. Note: an
 installed copy opens `start_url` many times — so the page you want opened *daily* should be the root,
 and a "read once" invite/about page should be a *separate* URL you send, not the root.
 
