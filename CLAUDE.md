@@ -221,8 +221,24 @@ The one that bites hardest and latest.
   and *flag it stale in the UI* ("loaded from cache, N min old") so the user knows they're offline.
   The skeleton's `data.js` is that helper — `Data.load()` does the race, aborts the fetch on timeout,
   and returns `{data, stale, ageMs}`; `app.js` reads it and shows the stale tag.
+- **Give staleness a visible badge, not just a tooltip.** wtq surfaces `data.js`'s state as a
+  three-way colored footer chip — `live` (green) / `cached` (amber) / `offline` (red) — so "am I
+  looking at fresh data?" is answerable at a glance. That's the concrete UI for the `{stale, ageMs}`
+  the helper already returns; a `stale`/`age` string in a corner is the floor, a colored chip is the
+  nicer version.
+- **Add a committed static snapshot as the *last* fallback tier** — live → localStorage → a JSON file
+  checked into the repo (and precached by the SW). The first-ever open with no cache and no network
+  then still renders real data instead of an empty state. Two caveats wtq itself demonstrates: the
+  snapshot only works if it's **actually committed AND precached** (wtq's `fetchFromStatic()` fetches
+  a `quartets.json` that was never committed, so its bottom tier 404s — a fallback that only fires
+  when everything else has already failed is exactly the one you never notice is broken), and it goes
+  stale silently, so treat it as a floor, not a source — flag it `offline`/`static` in the badge above.
 - **Webfonts survive offline only if the SW caches them** — they aren't iOS system fonts; without the
-  cache an offline home-screen open falls back to Times/Courier.
+  cache an offline home-screen open falls back to Times/Courier. Same trap for a **CDN library**
+  (SheetJS, a charting lib): a `<script src="https://cdn…">` the app can't run without is a hard
+  offline dependency — an installed app with a manifest but an uncached CDN dep opens to nothing on a
+  plane. Precache the CDN URL in the SW, or vendor a local copy. (wtq loads both SheetJS and Google
+  Fonts from CDNs with no SW — installable, but not actually offline.)
 - **Have a build step? Content-hash the shell instead of hand-bumping `V`.** The `V`-bump above is the
   discipline for a no-build app; if a bundler already emits your files, rename `app.[hash].js` /
   `styles.[hash].css` per build, rewrite the references in the *deployed* HTML (leave the source on
@@ -354,6 +370,23 @@ When the audience is small and known, **a log you own beats a dashboard you rent
   Plain-text formatted (breaks the reverse lookup); keep `doGet` tolerant of missing params forever
   (old queued pings ship yesterday's shape).
 
+### Sheet as a read backend — the ping mailbox, inverted — `data.js`
+The analytics pattern above is a Google Sheet you *write* to (append-only mailbox). The same private
+sheet is also a zero-backend **read** source, and `DATA_URL` is where the skeleton wires it: publish
+one tab to the web (*Publish to web → CSV/xlsx*; the sheet stays private, only that tab is public,
+CORS-clean), `fetch` it, parse client-side, render. Editing the sheet updates the site with **no
+build and no deploy** — the spreadsheet is the CMS. wtq is the worked example: it publishes as
+**xlsx** and parses with SheetJS in the browser, and cleverly encodes editorial status in the **cell
+background color** (white = candidate, yellow = uncertain, grey = alternate) — read via the cell's
+fill, so *formatting is metadata* and the author never types a status column. CSV is simpler and has
+no dependency; reach for xlsx only when you need multiple tabs, cell styling, or types. Either way
+it's the same trust model as the ping mailbox: public to read, private to edit, no server. Gotchas
+that cost a debugging session (SheetJS specifically): date-like text ("2/3", "18/4") gets coerced to
+a `Date` — recover the display string from the cell's `.w`, not `.v`; **all-digit strings coerce to
+numbers**; and a worksheet name can carry a trailing space (`"Played "`) that an exact-match lookup
+misses. Feed this through the same stale-while-revalidate + committed-snapshot fallback as any other
+cross-origin data (see §Offline).
+
 ### Deploy
 GitHub Pages, `main`/root, relative paths → `user.github.io/repo/`. After deploy, open the URL
 **online once** to prime the SW cache, then Add to Home Screen. The only thing verifiable *live* is a
@@ -387,6 +420,12 @@ requirement.
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
   lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
+- **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
+  blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
+- **Static fallback file never committed** → the bottom offline tier 404s, and since it only fires
+  after live *and* cache have both failed, you never notice until you're offline. Commit + precache it.
+- **SheetJS coerces date-like text / all-digit strings** → "2/3" becomes a `Date`, "0042" becomes
+  `42`; read the cell's `.w` (display text) not `.v`, and mind trailing-space sheet names (`"Played "`).
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
   double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
