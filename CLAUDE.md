@@ -148,6 +148,21 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] Optional `.dark` class mirror for forced testing / a toggle / visual regression
 - [ ] Contrast checked in *both* modes (WCAG AA)
 
+**Accessibility (the cheap floor)** — head + `styles.css`
+The build-time-cheap, retrofit-expensive slice — worth it even at a handful of users, because the
+need isn't proportional to user count (one colorblind user in ~12 men clears the bar) and most of it
+helps *you* too (sunlight, one-handed, tired). Skip the heavy tier (full screen-reader pass, ARIA
+live regions, WCAG AAA) unless you know a user needs it.
+- [ ] **Never encode meaning in color alone** — pair every color-coded state with a word, glyph, or
+  shape (the `live`/`cached`/`offline` chip is color **+ label**, a colorblind user reads the label)
+- [ ] Contrast AA in both schemes and touch targets ≥44px (covered under Dark mode / Mobile above)
+- [ ] **Semantic controls** — a tappable thing is a `<button>`/`<a>`, not a click-handler `<div>`;
+  real headings; one `<h1>`. Free keyboard + screen-reader support falls out of it.
+- [ ] **Every control has an accessible name** — visible text, or `aria-label` on an icon-only button
+- [ ] **Visible focus** — don't `outline:none` without a replacement (`:focus-visible`)
+- [ ] `alt` on meaningful images (decorative → `alt=""`); the share card already has `og:image:alt`
+- [ ] `@media (prefers-reduced-motion: reduce)` neutralizes non-essential transitions/animations
+
 **Print** (only if the app is meant to be printed / PDF'd) — `styles.css`
 - [ ] `@media print` resets dark backgrounds to white/black (ink) and hides interactive chrome
 - [ ] Remember links aren't clickable on paper — don't rely on them; show the URL/QR if it matters
@@ -462,6 +477,8 @@ requirement.
 - **Sheets: all-digit / date-like values coerced** → `0042`→`42` (breaks an id/hash join), `2/3`→a
   `Date`; format Plain-text, read `.w` not `.v`, mind trailing-space tab names. (§Google Sheets as a backend)
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
+- **Meaning in color alone** (red/green status, a colored dot) → invisible to the ~8% of men who are
+  red-green colorblind. Pair every color with a word, glyph, or shape.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
   double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
 - **Manifest but no `apple-*` metas** → Android installs clean, iOS install looks broken.
