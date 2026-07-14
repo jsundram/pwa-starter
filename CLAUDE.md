@@ -226,6 +226,11 @@ them anyway.
 ### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
 - The SW precaches `SHELL` and serves it cache-first (or network-first with cache fallback).
+- **`SHELL` isn't only app code — precache the *documents* users open where there's no signal.** AKM
+  lists its concert-program **PDFs** in `SHELL` ("precached so they open offline at the venue"); same
+  logic for a map tile in a canyon or a schedule at a festival. The test isn't "is it code?" but "will
+  someone need to *open* this exactly where the network isn't?" — if so it belongs in the precache, not
+  lazy runtime caching that only fills after a first online view.
 - **Bump `V` on every shell-file change.** A new `V` evicts the stale cache on `activate`. Forget it
   and your fix is in the repo but *never on anyone's phone* — iOS caches the SW aggressively. This
   bit AKM's "v77" rewrite (three commits, no bump, stale UI). `sw-lint.py` catches a staged `SHELL`
@@ -437,10 +442,32 @@ side of §Google Sheets as a backend put to one use — recording opens into an 
   path from the table above), crunched in the browser (`usage/crunch.js`), stale-while-revalidate from
   localStorage, `noindex`. Names never enter the repo — uids only; join at runtime if you want them.
 
+### Multi-page — the shared-nav pattern — `nav.css`
+This skeleton is a one-pager, but the moment there's a second HTML page (AKM has seven), two things
+change. **CSS splits** (already the rule: inline is fine for a strict one-pager, split to `styles.css`
+the instant there's a second page), and you need a **shared nav that doesn't fork per page**. AKM's
+pattern, worth copying: the nav markup is *static in each page's HTML* (no JS builds it — it must
+render before the bundle so there's no flash), and one `nav.css` styles it by **reusing each page's
+own palette tokens** (`var(--ink/--muted/--line/--accent)`) rather than hard-coding colors — so the
+nav themes correctly (light **and** dark) on every page with zero per-page overrides. Mark the current
+page with **`aria-current="page"`** (static in the markup, not a JS-added class — it's the semantic
+signal *and* the style hook), and collapse the wordmark to an abbreviation at a narrow breakpoint so it
+never wraps into the links. One `SHELL` in `sw.js` enumerates every page + its JS + data so the whole
+app is offline, and — the earlier note bites here — the page an installed copy reopens daily should be
+the root; "read once" pages (about, invite) are *separate* URLs you send.
+
 ### Deploy
 GitHub Pages, `main`/root, relative paths → `user.github.io/repo/`. After deploy, open the URL
 **online once** to prime the SW cache, then Add to Home Screen. The only thing verifiable *live* is a
 real cross-origin fetch — if that data renders at the Pages URL, everything downstream is proven.
+
+**Decide public vs private up front — it's an indexing + PII posture, not an afterthought.** A public
+app is fine to leave crawlable. A **private participant tool** (AKM: a roster app for one festival's
+players) should be un-findable: put `<meta name="robots" content="noindex,nofollow">` on **every**
+page *and* a site-wide `robots.txt` (`Disallow: /`) — belt and suspenders, since the meta and the file
+each cover cases the other misses — and keep PII out of the repo entirely (hold names in a private
+sheet, join at runtime; no committed fixtures). Note a `noindex` page is still *public to anyone with
+the URL* — indexing control is not access control.
 
 ### Reproducible dev environment (for Claude sessions)
 If a project needs system tools to build/test (a headless browser for screenshots, `rsvg-convert`
@@ -457,6 +484,25 @@ The full human-readable dependency table lives in the README's *Toolchain* secti
 them — but they pull no packages, so plain `python3` works identically; uv is a convenience, not a
 requirement.
 
+### Testing without a build — `package.json` as a dev-only harness
+A no-build app can still have real tests — the trick is keeping the harness *off* the deployed site.
+AKM keeps a `package.json` whose own description says it plainly ("the site itself is static, this is
+just the test harnesses"): `private: true`, a `playwright-core` devDependency, and `node` test scripts
+— **no bundler, no build step reaches the shipped files.** The site stays hand-written; the tests are
+tooling that never deploys (same segregation as `scripts/`). Two patterns worth stealing:
+- **Network-gate any test that hits live data — skip (exit 0), don't fail, when it's unreachable.**
+  AKM's tests that read the live Google Sheet exit cleanly offline or in a locked-down sandbox instead
+  of going red, so "no network" never reads as "broken" (same idea as `setup-environment.sh` being
+  non-fatal). Pure-logic tests run off a committed fixture and pass anywhere; PII-bearing data gets no
+  committed fixture, so its tests are live-only and gated.
+- **Test the *working tree* on a real phone before pushing — a Node/Playwright harness can't see a
+  touchscreen.** Touch-only bugs (a `click`/`pointerdown`/`touchstart` handler that only misfires on
+  iOS — see the double-fire gotcha in §Mobile) need a real device. AKM's method: `python3 -m http.server
+  8000 --bind 0.0.0.0` + `ngrok http 8000` for a public HTTPS URL, opened in an **iOS Safari Private
+  tab — which doesn't register the service worker, so nothing caches** and every reload is the latest
+  code. That last bit is the point: it rules out "is this my fix or a stale SW?" at the same time, the
+  question that otherwise eats an hour on any installed PWA.
+
 ---
 
 ## Gotchas grab-bag (each cost time once, across these repos)
@@ -470,6 +516,8 @@ requirement.
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
   lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
+- **Testing a fix on an installed PWA** → you're fighting the SW cache, not your code. Test the working
+  tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
 - **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
 - **Static fallback file never committed** → the bottom offline tier 404s, and since it only fires
