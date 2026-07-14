@@ -91,9 +91,11 @@ stays relative). Everything that is *not* shipped to the browser is segregated:
 - **`assets/`** = icons + share card. `icon.svg`/`og.svg` are the **sources of truth**; the PNGs
   are generated, never hand-edited.
 - **`usage/`** = the self-contained analytics dashboard (its own page, precached, `noindex`).
-- **`scripts/`** = tooling that never ships: asset rasterizers, `sw-lint.py`, and `analytics.gs`
-  (reference copy of the backend).
-- **`.githooks/`** = the warn-only pre-commit.
+- **`scripts/`** = tooling that never ships: asset rasterizers, `sw-lint.py`, `og-lint.py`, and
+  `analytics.gs` (reference copy of the backend).
+- **`tools/`** = `setup-environment.sh`, the idempotent build-toolchain check/installer, run from a
+  `SessionStart` hook in `.claude/settings.json` so a fresh clone or cloud session can actually build.
+- **`.githooks/`** = the warn-only pre-commit (runs `sw-lint.py` + `og-lint.py`).
 
 Two deliberate opinions worth keeping: **CSS is a separate `styles.css`** (not inlined) so the
 design system has one home — inlining is fine for a strict one-pager, but split it the moment there's
@@ -362,7 +364,15 @@ If a project needs system tools to build/test (a headless browser for screenshot
 for icons, `qpdf` for PDFs), put them in a `tools/setup-environment.sh` that's idempotent and detects
 a sandbox, and run it from a `SessionStart` hook — so a fresh cloud session can actually build.
 Boccherini learned this the hard way (WebKit install fixes, a setup script). Don't make every session
-rediscover the dependency list.
+rediscover the dependency list. **This skeleton ships it:** `tools/setup-environment.sh` checks
+`rsvg-convert` + `pngquant` (the only build-time deps; the deployed app has none), reports what's
+missing, and auto-installs *only* in an unattended env (CI / container / `SETUP_AUTO_INSTALL=1`) so it
+never mutates a laptop unprompted — and it's wired to a `SessionStart` hook in `.claude/settings.json`.
+It's idempotent + non-fatal (always exits 0), the two rules that make it safe to run every session.
+The full human-readable dependency table lives in the README's *Toolchain* section. Note the lints
+(`sw-lint.py`/`og-lint.py`) carry PEP 723 `# /// script` blocks, so `uv run` provisions Python for
+them — but they pull no packages, so plain `python3` works identically; uv is a convenience, not a
+requirement.
 
 ---
 

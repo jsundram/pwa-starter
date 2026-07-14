@@ -6,3 +6,6 @@
 .DS_Store
 node_modules/
 __pycache__/
+
+# Claude Code: track .claude/settings.json (team hooks), ignore the ephemeral working dir.
+.claude/.cc-writes/

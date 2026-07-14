@@ -42,13 +42,31 @@ manifest.json   installability
 ping.js         optional: queue-offline usage pings → a private Google Sheet
 usage/          optional: a client-side dashboard that reads those pings back
 assets/         icon.svg + og.svg (sources) → run the scripts to rasterize
-scripts/        make-icons.sh · make-og.sh · sw-lint.py · analytics.gs (backend reference)
-.githooks/      pre-commit that runs sw-lint (enable: git config core.hooksPath .githooks)
+scripts/        make-icons.sh · make-og.sh · sw-lint.py · og-lint.py · analytics.gs (backend reference)
+tools/          setup-environment.sh — check/install the build toolchain (run by a SessionStart hook)
+.githooks/      pre-commit that runs sw-lint + og-lint (enable: git config core.hooksPath .githooks)
 ```
+
+## Toolchain
+
+The **deployed app has zero runtime dependencies** — it's static files. These are only needed at
+*build* time, to regenerate assets and run the lints:
+
+| Tool | Used by | Get it |
+|---|---|---|
+| `rsvg-convert` (librsvg) | `make-icons.sh`, `make-og.sh` (rasterize the SVGs) | `brew install librsvg` · `apt install librsvg2-bin` |
+| `pngquant` | `make-og.sh` (compress the share card under the size budget) | `brew install pngquant` · `apt install pngquant` |
+| `python3` ≥ 3.9 | `sw-lint.py`, `og-lint.py` — **no pip packages** (also `uv run`-able via their inline PEP 723 metadata) | preinstalled on most systems |
+
+`tools/setup-environment.sh` checks these and prints what's missing (auto-installs only in an
+unattended env — CI, a container, or `SETUP_AUTO_INSTALL=1`). A `SessionStart` hook in
+`.claude/settings.json` runs it so a fresh Claude Code clone isn't missing tools mid-build; run it by
+hand anytime with `tools/setup-environment.sh`.
 
 ## First run
 
 ```sh
+tools/setup-environment.sh     # verify the build toolchain above (or let the SessionStart hook do it)
 scripts/make-icons.sh          # icon.svg → the PNGs the head + manifest reference (needs rsvg-convert)
 scripts/make-og.sh             # og.svg → assets/og.png (the share card)
 python3 -m http.server 8000    # open http://localhost:8000/  — installable + offline after one load
