@@ -112,6 +112,7 @@ the link and gets a grey box, or installs it and it won't open on a plane.
 - [ ] OG: `og:title/description/url/image` (+ `image:width/height/alt`)
 - [ ] Twitter: `twitter:card=summary_large_image` + `title/description/image`
 - [ ] **`og:image` is an ABSOLUTE https URL to a RASTER (PNG/JPG), 1200×630, compressed** — not relative, not SVG
+- [ ] Card is **under the scraper size budget** — `make-og.sh` compresses + hard-fails over ~250 KB, and `og-lint.py` guards the commit (same pre-commit as `sw-lint.py`); a too-big card previews as a grey box
 - [ ] The share image exists and renders (open it; paste the page URL into a chat to test the scrape)
 
 **Icons / install** — `manifest.json`, `assets/`, `scripts/make-icons.sh`
@@ -192,7 +193,11 @@ boccherini even the **`viewport` tag itself**. This skeleton front-loads all of 
 ### Icons & share image — `assets/`, `scripts/make-*.sh`
 One SVG is the source; rasterize from it, never hand-edit PNGs (they drift). `make-icons.sh` →
 180/192/512; `make-og.sh` → the 1200×630 card. If the card has live `<text>`, the font must be
-installed locally or the render falls back to a stock serif. Neat single-page trick (lobsters): one
+installed locally or the render falls back to a stock serif. **`make-og.sh` compresses the card and
+hard-fails if it lands over ~250 KB** (a margin under WhatsApp's ~300 KB scrape cutoff), and
+`og-lint.py` re-checks the staged PNG in the pre-commit — so "compress the share image" is enforced,
+not remembered. That's the `sw-lint.py` discipline applied to the *other* forgot-it asset: a card too
+big to scrape previews as a grey box, and you don't find out until someone texts the link back blank. Neat single-page trick (lobsters): one
 SVG **data-URI** used for `apple-touch-icon` *and* a **runtime-generated manifest** (a tiny script
 builds it as a Blob URL) — zero icon files. This skeleton uses real files since multi-page apps cache
 them anyway.
@@ -265,7 +270,36 @@ const buildSetupLink = v => `${location.origin}${location.pathname}?data=${encod
 - `viewport-fit=cover` **and** `env(safe-area-inset-*)` padding — one without the other clips content
   under the notch or wastes the inset.
 - **Hover doesn't exist on touch.** Tooltips/popovers that only appear on `:hover` are invisible on a
-  phone — give them a tap/click path. (Both haydn and boccherini shipped this fix late.)
+  phone — give them a tap/click path. (Both haydn and boccherini shipped this fix late.) The subtle
+  bug that costs a debugging session is the **double-fire**: on touch a single tap synthesizes *both*
+  a `mouseover` and a `click`, so the naive "`mouseover` shows the tip, `click` runs the action" does
+  both at once — the tip flashes and the link fires before you can read it. Fix by branching on
+  whether the device has a real pointer: on a mouse, hover shows the tip and clicking the trigger
+  runs the action; on touch, a tap only *toggles* the tip and the action moves to a dedicated control
+  *inside* the bubble (so the first tap can't also fire it), with the bubble `pointer-events:none`
+  except that control so it never blocks the triggers beneath. haydn's scatter `bindDotInteraction`
+  is the worked example. The kernel, app-agnostic:
+
+  ```js
+  const TOUCH = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  function bindTip(trigger, {showTip, hideTip, action}){
+    if(TOUCH){
+      trigger.addEventListener("click", e => {           // a tap only opens the tip...
+        e.preventDefault(); e.stopPropagation();          // ...never the action, never the doc-dismiss
+        isOpen(trigger) ? hideTip() : showTip(trigger);   // ...and the action is a ▶ button in the tip
+      });
+    }else{
+      trigger.addEventListener("pointerenter", () => showTip(trigger));
+      trigger.addEventListener("pointerleave", hideTip);
+      trigger.addEventListener("click", action);          // real pointer: no double-fire, run it
+    }
+  }
+  document.addEventListener("click", hideTipIfOpen);       // tap elsewhere dismisses
+  ```
+
+  Left as a snippet, not a shipped file: the ~12-line kernel above is the reusable part; the bubble's
+  positioning, styling, and content are app-specific enough that a generic component would fight every
+  adopter's design. Only lift it into a `touch-tooltip.js` helper if an app has *many* such triggers.
 - Target *real* touch devices with `@media (hover:none) and (pointer:coarse) and (max-width:800px)`
   when you want phone-specific sizing — a bare `max-width` also catches a shrunk desktop window.
 - Fluid sizing with `clamp(min, vw, max)` scales cleanly desktop→tablet without a pile of breakpoints.
@@ -336,7 +370,7 @@ rediscover the dependency list.
 
 - **Forgot the share card** → the link previews as a blank grey box. Do OG + `make-og.sh` early.
 - **Relative or SVG `og:image`** → no preview in iMessage/WhatsApp. Absolute + raster.
-- **OG image too big** → some scrapers skip it. Compress.
+- **OG image too big** → some scrapers skip it (grey box). `make-og.sh` fails + `og-lint.py` guards the commit; keep it under ~250 KB.
 - **Forgot to bump `V`** → fix ships to the repo, never to phones. `sw-lint.py` guards it.
 - **SW caches its own version probe** → `checkVer()` fetches `./sw.js?_=<ts>` on every resume; if the
   fetch handler caches it, each resume writes a dead unique-key entry (unbounded growth between
@@ -344,7 +378,8 @@ rediscover the dependency list.
   lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
-- **Hover-only tooltip** → invisible on every phone. Give it a tap path.
+- **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
+  double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
 - **Manifest but no `apple-*` metas** → Android installs clean, iOS install looks broken.
 - **Blank `name` / wrong-path icon in the manifest** → Android installs an unnamed app with a broken
   glyph. It fails silently (no build error); open the manifest and confirm every icon URL 200s.

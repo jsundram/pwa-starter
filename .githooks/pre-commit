@@ -3,4 +3,5 @@
 #   git config core.hooksPath .githooks
 # Never blocks a commit — it nags. Gate the same check in CI (sw-lint.py exits 1) if you want teeth.
 python3 scripts/sw-lint.py || true
+python3 scripts/og-lint.py || true
 exit 0
