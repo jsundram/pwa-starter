@@ -240,6 +240,27 @@ big screen, AirDrop/iMessage the link to the phone, open it, done. quartet-log s
 URL exactly this way. Flip side of the note above: a link that carries state **is** a send-once URL —
 don't make it the `start_url` an installed copy reopens daily.
 
+Left as prose, not a shipped file — it's ~10 lines and only some apps need it. But the two subtleties
+that cost a debugging session are worth pinning down: strip the param with `history.replaceState`
+(not `location.search = …`, which reloads and adds a history entry), and strip it **before** anything
+reads the URL — a `fetch` leaks it in the `Referer` header, analytics log `location.href`. So run this
+first thing at boot:
+
+```js
+// First load: adopt ?data=… (or ?key=…), then scrub it from the URL.
+function consumeConfigParam(){
+  const u = new URL(location.href);
+  const v = u.searchParams.get("data");
+  if(!v) return;
+  if(isValid(v)) localStorage.setItem("app-data-url", v);   // validate BEFORE you trust it
+  u.searchParams.delete("data");
+  history.replaceState(null, "", u.pathname + u.search + u.hash);   // no reload, no history entry
+}
+
+// Desktop "copy setup link" builder — encodeURIComponent so the value survives the URL.
+const buildSetupLink = v => `${location.origin}${location.pathname}?data=${encodeURIComponent(v)}`;
+```
+
 ### Mobile — head + `styles.css`
 - `viewport-fit=cover` **and** `env(safe-area-inset-*)` padding — one without the other clips content
   under the notch or wastes the inset.
