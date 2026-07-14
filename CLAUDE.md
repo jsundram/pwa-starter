@@ -349,11 +349,54 @@ skeleton's `theme.js` implements the contract — `subscribe()`, `getCssColor()`
 `invalidateColorCache()` that `notify()` fires *before* subscribers; `app.js`'s `onThemeChange()` is
 the consumer (repaint from cached data, no refetch). The pre-paint stamp lives in `index.html`.
 
-### Analytics — cheap, private, no third party — `ping.js`, `scripts/analytics.gs`, `usage/`
-When the audience is small and known, **a log you own beats a dashboard you rent.**
-- A ~10-line Apps Script **bound to a private Google Sheet**, deployed as a web app (*Execute as: Me*
-  / *Access: Anyone*) = an append-only mailbox: anyone can drop a row, only you can read the sheet.
-  No server, no cost, no consent banner, no third party.
+### Google Sheets as a backend — read, write, and picking the access path — `ping.js`, `data.js`, `scripts/analytics.gs`
+A private Google Sheet is the no-backend datastore these apps keep reaching for: free, no server,
+editable from your phone, and you already trust Google with the data. **Writes** have exactly one path
+(an Apps Script web app); **reads** have four, and the choice is a trade between *how much of the doc
+you expose*, *whether you need it live*, and *how much parsing you ship*. Pick from the table, then
+see §Analytics for the write path worked end-to-end and wtq for a read one.
+
+| Access | R/W | Exposes | Parse | Fresh? | Reach for it when |
+|---|:--:|---|---|---|---|
+| **Apps Script web app** (`doPost`/`doGet`, *Execute as: Me / Access: Anyone*) | R **+ W** | nothing — doc stays fully private, only the deployed function is public | you shape the JSON | live | the only way to **write**; also the only **private live read** (return just the columns you code) |
+| **Publish-to-web CSV** (`/d/e/…/pub?gid=…&single=true&output=csv`) | R | only the **published tab** | trivial (`split`) | snapshot, ~min lag | the default read — one flat tab, zero dependencies |
+| **Publish-to-web xlsx** (`…/pub?output=xlsx`) | R | only the published tab(s) | needs **SheetJS** | snapshot, ~min lag | many tabs, cell **colors/styling as data**, or real types (wtq) |
+| **gviz query** (`/d/{id}/gviz/tq?tqx=out:csv&sheet=…&tq=select…`) | R | the **whole doc** (must be link-viewable) | CSV clean; JSON is wrapped | live | filter / select columns server-side without writing a script |
+| **Sheets API v4** (`…/v4/…/values/{range}?key=…`) | R (W w/ OAuth) | whole doc **+ your API key in the client** | JSON | live | basically never here — skip unless you already have auth |
+
+**The exposure column is the one that bites.** *Publish to web* makes only the tab you publish public —
+the rest of the document stays private, independent of share settings — which is why both the
+analytics mailbox and the `usage/` dashboard use it. *gviz* and the *Sheets API* read the **live**
+document, so they require it be link-viewable and then expose **all** of it to anyone with the id.
+*Apps Script* is the privacy maximalist: the doc is fully private and the endpoint returns only what
+you code. So — writing, or a live read you won't make the whole sheet public for → Apps Script; a
+simple public read → publish a tab; and the cute trick worth knowing (wtq) is that a **published xlsx
+carries cell fills**, so *formatting becomes metadata* (background color = editorial status) and the
+author never types a status column.
+
+Gotchas, each of which cost a debugging session:
+- **A plain Save doesn't redeploy an Apps Script** — Manage deployments → New version, or you're
+  editing a script nobody's calling.
+- **All-digit and date-like text get coerced** — an id `0042` becomes `42`, "2/3" becomes a `Date`.
+  Format the column Plain-text (Apps Script side); read the cell's display text (`.w`, not `.v`) on
+  the SheetJS side. The all-digit case silently breaks a hash/id join.
+- **`/pub` lags and caches** — a publish-to-web read can be minutes behind the live sheet; fine for
+  stale-while-revalidate, wrong if you need read-your-writes.
+- **A published or link-shared tab is public forever to anyone with the URL** — keep no PII in it;
+  hold names in a private tab and join at runtime (the analytics `=UID()` trick).
+- **gviz JSON is wrapped** in `/*O_o*/google.visualization.Query.setResponse(…)` — strip it, or use `out:csv`.
+- **A worksheet name can carry a trailing space** (`"Played "`) — exact-match tab lookups miss it.
+- **Keep `doGet`/parsers tolerant of missing or old-shaped rows forever** — offline-queued writes ship
+  yesterday's column layout.
+
+Wire any read through the same stale-while-revalidate + committed-snapshot fallback as any cross-origin
+data (§Offline) and surface the live/cached/offline state in the UI; `DATA_URL` in `data.js` is where
+the read URL lands (empty = disabled, like `ping.js`'s `URL_`).
+
+### Analytics — an application of the sheet backend — `ping.js`, `scripts/analytics.gs`, `usage/`
+When the audience is small and known, **a log you own beats a dashboard you rent.** This is the *write*
+side of §Google Sheets as a backend put to one use — recording opens into an Apps Script mailbox
+(anyone can drop a row, only you can read the sheet). What's analytics-specific on top of the transport:
 - `ping.js` **queues opens in `localStorage` and flushes when online** (fire-and-forget, loaded last,
   never blocks render) — offline opens are recorded at open time, delivered later.
 - Identify users by a **one-way hash** of a stable name (first 4 bytes of SHA-256), never the name —
@@ -361,31 +404,9 @@ When the audience is small and known, **a log you own beats a dashboard you rent
   Empty uid = an anonymous open (a useful "a stranger found the URL" tripwire).
 - **`URL_` empty = disabled but harmless** — ship the client before the backend exists; the backlog
   flushes when the URL lands.
-- The **`usage/` dashboard** reads the same data back client-side: the pings tab's *Publish-to-web
-  CSV* (CORS-clean; the sheet stays private, only that tab is published), crunched in the browser
-  (`usage/crunch.js`), stale-while-revalidate from localStorage, `noindex`. Names never enter the
-  repo — uids only; join names at runtime if you want them.
-- Gotchas that cost real debugging: a plain **Save doesn't redeploy** an Apps Script (Manage
-  deployments → New version); **all-digit hashes get coerced to numbers** unless the column is
-  Plain-text formatted (breaks the reverse lookup); keep `doGet` tolerant of missing params forever
-  (old queued pings ship yesterday's shape).
-
-### Sheet as a read backend — the ping mailbox, inverted — `data.js`
-The analytics pattern above is a Google Sheet you *write* to (append-only mailbox). The same private
-sheet is also a zero-backend **read** source, and `DATA_URL` is where the skeleton wires it: publish
-one tab to the web (*Publish to web → CSV/xlsx*; the sheet stays private, only that tab is public,
-CORS-clean), `fetch` it, parse client-side, render. Editing the sheet updates the site with **no
-build and no deploy** — the spreadsheet is the CMS. wtq is the worked example: it publishes as
-**xlsx** and parses with SheetJS in the browser, and cleverly encodes editorial status in the **cell
-background color** (white = candidate, yellow = uncertain, grey = alternate) — read via the cell's
-fill, so *formatting is metadata* and the author never types a status column. CSV is simpler and has
-no dependency; reach for xlsx only when you need multiple tabs, cell styling, or types. Either way
-it's the same trust model as the ping mailbox: public to read, private to edit, no server. Gotchas
-that cost a debugging session (SheetJS specifically): date-like text ("2/3", "18/4") gets coerced to
-a `Date` — recover the display string from the cell's `.w`, not `.v`; **all-digit strings coerce to
-numbers**; and a worksheet name can carry a trailing space (`"Played "`) that an exact-match lookup
-misses. Feed this through the same stale-while-revalidate + committed-snapshot fallback as any other
-cross-origin data (see §Offline).
+- The **`usage/` dashboard** reads the same data back — a publish-to-web CSV of the pings tab (the read
+  path from the table above), crunched in the browser (`usage/crunch.js`), stale-while-revalidate from
+  localStorage, `noindex`. Names never enter the repo — uids only; join at runtime if you want them.
 
 ### Deploy
 GitHub Pages, `main`/root, relative paths → `user.github.io/repo/`. After deploy, open the URL
@@ -424,8 +445,8 @@ requirement.
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
 - **Static fallback file never committed** → the bottom offline tier 404s, and since it only fires
   after live *and* cache have both failed, you never notice until you're offline. Commit + precache it.
-- **SheetJS coerces date-like text / all-digit strings** → "2/3" becomes a `Date`, "0042" becomes
-  `42`; read the cell's `.w` (display text) not `.v`, and mind trailing-space sheet names (`"Played "`).
+- **Sheets: all-digit / date-like values coerced** → `0042`→`42` (breaks an id/hash join), `2/3`→a
+  `Date`; format Plain-text, read `.w` not `.v`, mind trailing-space tab names. (§Google Sheets as a backend)
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
   double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
@@ -440,8 +461,8 @@ requirement.
   link" button instead.
 - **iOS resumes, doesn't reload** → stale data unless you re-pull on `visibilitychange`.
 - **Print with dark-mode CSS** → wastes ink; links unclickable on paper. `@media print` resets.
-- **Analytics: plain Save instead of redeploy** → you're editing a script nobody's calling.
-- **Analytics: all-digit hash coerced to a number** → reverse lookup silently misses ~2% of users.
+- **Sheets: a plain Save doesn't redeploy the Apps Script** → you're editing a script nobody's calling
+  (Manage deployments → New version). See §Google Sheets as a backend for the rest.
 - **Named the root the "invite" page** → installed copies open it daily; keep root = the daily app.
 - **PII in the repo** → a `noindex` page is still public to anyone with the URL. Keep data in a
   separate view-only sheet, pulled at runtime, never committed.
