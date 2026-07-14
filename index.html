@@ -53,6 +53,15 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
 -->
 
+<!-- Pre-paint theme stamp. Reads the saved theme and sets data-theme on <html>
+     BEFORE styles.css resolves, so a forced light/dark choice doesn't flash.
+     Kept a dumb 3-liner on purpose — theme.js owns everything else; this must
+     use the SAME key ("app-theme") + attribute values so the two never disagree. -->
+<script>
+  try{ var t = localStorage.getItem("app-theme");
+       if(t==="light"||t==="dark") document.documentElement.setAttribute("data-theme", t); }catch(e){}
+</script>
+
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -60,6 +69,8 @@
   <header class="head">
     <h1>APP</h1>
     <span id="ver" class="ver" hidden></span>   <!-- app.js stamps the installed SW version here -->
+    <span id="stale" class="stale" hidden></span>   <!-- app.js shows "cached · N min old" when offline -->
+    <button id="theme" type="button" class="theme-toggle">Theme: Auto</button>   <!-- app.js cycles auto/light/dark -->
   </header>
 
   <section id="app" class="card">
@@ -67,6 +78,11 @@
   </section>
 </main>
 
+<!-- Load order matters: theme/data/PTR expose globals that app.js uses.
+     pullToRefresh.js is OPTIONAL — delete it + its CSS if you don't want the gesture. -->
+<script src="./theme.js"></script>
+<script src="./data.js"></script>
+<script src="./pullToRefresh.js"></script>
 <script src="./ping.js"></script>   <!-- optional analytics; harmless until you set URL_ in it -->
 <script src="./app.js"></script>
 </body>

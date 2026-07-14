@@ -41,6 +41,8 @@ into *their* app. Do this in order:
    | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` (keep in sync!) |
    | `app-token` | a random token | ping.js + scripts/analytics.gs (must match) |
    | `app-pings` / `app-me` / `app-usage` | localStorage keys (optional rename) | ping.js, usage/index.html |
+   | `app-theme` / `app-data:` | localStorage keys (optional rename) | theme.js **and** index.html pre-paint script (keep in sync!); data.js |
+   | `DATA_URL` empty | your cross-origin data endpoint | app.js (empty = disabled, like ping.js's `URL_`) |
 
 3. **Draw the icon.** Replace `assets/icon.svg` (and `assets/og.svg`) with something real, then run
    `scripts/make-icons.sh` + `scripts/make-og.sh`. Until you do, the head references PNGs that don't
@@ -82,7 +84,10 @@ This is exactly the Haydn / Boccherini use case. Known starting points for those
 Deployed files live at the repo root (so GitHub Pages "deploy from root" just works and every path
 stays relative). Everything that is *not* shipped to the browser is segregated:
 
-- **Root** = the app: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `ping.js`.
+- **Root** = the app: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `ping.js`, and
+  three small reference helpers `app.js` wires together — `theme.js` (three-state theme + the
+  JS-baked-color contract), `data.js` (stale-while-revalidate with a timeout), and the optional
+  `pullToRefresh.js` (standalone-only gesture; delete it + its CSS if unused).
 - **`assets/`** = icons + share card. `icon.svg`/`og.svg` are the **sources of truth**; the PNGs
   are generated, never hand-edited.
 - **`usage/`** = the self-contained analytics dashboard (its own page, precached, `noindex`).
@@ -192,7 +197,7 @@ SVG **data-URI** used for `apple-touch-icon` *and* a **runtime-generated manifes
 builds it as a Blob URL) — zero icon files. This skeleton uses real files since multi-page apps cache
 them anyway.
 
-### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `sw-lint.py`
+### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
 - The SW precaches `SHELL` and serves it cache-first (or network-first with cache fallback).
 - **Bump `V` on every shell-file change.** A new `V` evicts the stale cache on `activate`. Forget it
@@ -207,6 +212,8 @@ The one that bites hardest and latest.
   fallback so a flaky connection degrades to last-known data instead of hanging: race the fetch
   against a short timeout (quartet-log uses ~5s), and on timeout/failure serve the localStorage copy
   and *flag it stale in the UI* ("loaded from cache, N min old") so the user knows they're offline.
+  The skeleton's `data.js` is that helper — `Data.load()` does the race, aborts the fetch on timeout,
+  and returns `{data, stale, ageMs}`; `app.js` reads it and shows the stale tag.
 - **Webfonts survive offline only if the SW caches them** — they aren't iOS system fonts; without the
   cache an offline home-screen open falls back to Times/Courier.
 - **Have a build step? Content-hash the shell instead of hand-bumping `V`.** The `V`-bump above is the
@@ -245,10 +252,11 @@ don't make it the `start_url` an installed copy reopens daily.
   floor, not the ceiling: an installed app has **no browser chrome, so no reload button** — add a
   **pull-to-refresh** gesture *and* a **foreground poll** (a `setInterval`) so a left-open app freshens
   itself. Gate all three on `document.visibilityState === 'visible'` **and** a staleness threshold so a
-  backgrounded tab never fetches and a fresh one isn't re-hit. quartet-log ships all three (see
-  `pullToRefresh.js`); Background Sync isn't an option — iOS standalone doesn't support it.
+  backgrounded tab never fetches and a fresh one isn't re-hit. The skeleton ships all three:
+  `pullToRefresh.js` (the gesture, standalone-only) plus the gated `maybeRefresh()` poll and resume
+  re-pull in `app.js`. Background Sync isn't an option — iOS standalone doesn't support it.
 
-### Dark mode — `styles.css`
+### Dark mode — `styles.css`, `theme.js`
 Two entry points, both cheap: `@media (prefers-color-scheme: dark)` (what users get) and a `.dark`
 class (force it for screenshots / a toggle / visual-regression baselines). Drive everything off CSS
 custom properties so a mode is a variable swap, not a second stylesheet. Watch source order — a later
@@ -263,7 +271,10 @@ ran, and a mode flip won't touch it. So set a contract: components that bake col
 each `rerender()`. Purely `var(--…)`-driven components update for free; only the JS-baked ones need
 plumbing. quartet-log's calendar and dashboard are the worked example. Bonus: a persisted three-state
 toggle (`auto`/`light`/`dark`, default `auto`) plus a pre-paint inline `<script>` that stamps
-`data-theme` before first paint kills the dark-mode FOUC without waiting for the bundle.
+`data-theme` before first paint kills the dark-mode FOUC without waiting for the bundle. The
+skeleton's `theme.js` implements the contract — `subscribe()`, `getCssColor()`, and an
+`invalidateColorCache()` that `notify()` fires *before* subscribers; `app.js`'s `onThemeChange()` is
+the consumer (repaint from cached data, no refetch). The pre-paint stamp lives in `index.html`.
 
 ### Analytics — cheap, private, no third party — `ping.js`, `scripts/analytics.gs`, `usage/`
 When the audience is small and known, **a log you own beats a dashboard you rent.**
