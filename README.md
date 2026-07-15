@@ -73,3 +73,21 @@ python3 -m http.server 8000    # open http://localhost:8000/  — installable + 
 ```
 
 Then read [`CLAUDE.md`](CLAUDE.md) for the full checklist and the reasoning behind each piece.
+
+## Sources
+
+Every rule here was paid for once, in one of these apps. The first four are the *"forgot the list,
+then retrofitted it"* origin story — each grew the same set of late-added features (share card,
+offline, install polish, dark mode, analytics), and the diff between them is the
+[maturity gradient](CLAUDE.md#the-maturity-gradient-why-the-checklist-exists) the checklist is built
+from. The last two are build-step / advanced-pattern references CLAUDE.md points at as worked
+examples.
+
+| App | Contributed |
+|---|---|
+| [quartets.boccherini.org](https://github.com/jsundram/quartets.boccherini.org) | Excellent dark-mode + print CSS — but the *before* case: no favicon, OG, manifest, or service worker. The dark-mode/PDF retrofit saga, and even the `viewport` tag added late. |
+| [haydn-info-card](https://github.com/jsundram/haydn-info-card) | Favicons + OG + preview image + GoatCounter, but no manifest/SW (not installable, not offline). Its scatter page is the worked example for the touch tap-fallback (`bindDotInteraction`). |
+| [lobsters-and-lighthouses](https://github.com/jsundram/lobsters-and-lighthouses) | Runtime-generated manifest + an inlined service worker; the single-SVG-`data:`-URI trick reused for both `apple-touch-icon` and the manifest (zero icon files). |
+| [AKM](https://github.com/jsundram/akm) | The mature end of the gradient: full checklist incl. the `V`-bump + `sw-lint` cache-bust discipline (the "v77" stale-cache lesson) and its own private-sheet analytics. |
+| [quartet-log](https://github.com/jsundram/quartet-log) | The build-step variant: esbuild output with content-hashed cache-busting (`V` = `bundlehash-csshash`), the JS-baked-color theme `rerender()` contract, and `?data=` setup-link seeding. |
+| [wtq](https://github.com/jsundram/wtq) (Well-Tempered Quartet) | Manifest + home-screen install with stale-while-revalidate offline via `localStorage` (no service worker) — the real-world case behind `data.js`'s timeout-race-then-serve-cache pattern. |
