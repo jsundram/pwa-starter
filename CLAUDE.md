@@ -107,7 +107,11 @@ logic in the HTML beyond loading the scripts.
 ## The pre-share checklist
 
 The rubric for both workflows. None of it is hard; all of it is easy to forget until someone texts
-the link and gets a grey box, or installs it and it won't open on a plane.
+the link and gets a grey box, or installs it and it won't open on a plane. And there's no longer a
+robot to catch these for you — Lighthouse **removed its PWA category in v12 (May 2024)** and
+PageSpeed dropped it too (Chrome no longer even requires a service worker for installability), so no
+automated audit grades a PWA anymore. This checklist *is* the audit. (A service worker is now about
+*offline*, not installability — but iOS still needs one to open on a plane, so it stays mandatory here.)
 
 **Share / link preview** — `index.html` head, `scripts/make-og.sh`
 - [ ] `<title>` + `meta[description]` are real (not a default)
@@ -143,6 +147,21 @@ the link and gets a grey box, or installs it and it won't open on a plane.
 - [ ] `@media (prefers-color-scheme: dark)` overrides (follows the OS)
 - [ ] Optional `.dark` class mirror for forced testing / a toggle / visual regression
 - [ ] Contrast checked in *both* modes (WCAG AA)
+
+**Accessibility (the cheap floor)** — head + `styles.css`
+The build-time-cheap, retrofit-expensive slice — worth it even at a handful of users, because the
+need isn't proportional to user count (one colorblind user in ~12 men clears the bar) and most of it
+helps *you* too (sunlight, one-handed, tired). Skip the heavy tier (full screen-reader pass, ARIA
+live regions, WCAG AAA) unless you know a user needs it.
+- [ ] **Never encode meaning in color alone** — pair every color-coded state with a word, glyph, or
+  shape (the `live`/`cached`/`offline` chip is color **+ label**, a colorblind user reads the label)
+- [ ] Contrast AA in both schemes and touch targets ≥44px (covered under Dark mode / Mobile above)
+- [ ] **Semantic controls** — a tappable thing is a `<button>`/`<a>`, not a click-handler `<div>`;
+  real headings; one `<h1>`. Free keyboard + screen-reader support falls out of it.
+- [ ] **Every control has an accessible name** — visible text, or `aria-label` on an icon-only button
+- [ ] **Visible focus** — don't `outline:none` without a replacement (`:focus-visible`)
+- [ ] `alt` on meaningful images (decorative → `alt=""`); the share card already has `og:image:alt`
+- [ ] `@media (prefers-reduced-motion: reduce)` neutralizes non-essential transitions/animations
 
 **Print** (only if the app is meant to be printed / PDF'd) — `styles.css`
 - [ ] `@media print` resets dark backgrounds to white/black (ink) and hides interactive chrome
@@ -207,6 +226,11 @@ them anyway.
 ### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
 - The SW precaches `SHELL` and serves it cache-first (or network-first with cache fallback).
+- **`SHELL` isn't only app code — precache the *documents* users open where there's no signal.** AKM
+  lists its concert-program **PDFs** in `SHELL` ("precached so they open offline at the venue"); same
+  logic for a map tile in a canyon or a schedule at a festival. The test isn't "is it code?" but "will
+  someone need to *open* this exactly where the network isn't?" — if so it belongs in the precache, not
+  lazy runtime caching that only fills after a first online view.
 - **Bump `V` on every shell-file change.** A new `V` evicts the stale cache on `activate`. Forget it
   and your fix is in the repo but *never on anyone's phone* — iOS caches the SW aggressively. This
   bit AKM's "v77" rewrite (three commits, no bump, stale UI). `sw-lint.py` catches a staged `SHELL`
@@ -221,8 +245,24 @@ The one that bites hardest and latest.
   and *flag it stale in the UI* ("loaded from cache, N min old") so the user knows they're offline.
   The skeleton's `data.js` is that helper — `Data.load()` does the race, aborts the fetch on timeout,
   and returns `{data, stale, ageMs}`; `app.js` reads it and shows the stale tag.
+- **Give staleness a visible badge, not just a tooltip.** wtq surfaces `data.js`'s state as a
+  three-way colored footer chip — `live` (green) / `cached` (amber) / `offline` (red) — so "am I
+  looking at fresh data?" is answerable at a glance. That's the concrete UI for the `{stale, ageMs}`
+  the helper already returns; a `stale`/`age` string in a corner is the floor, a colored chip is the
+  nicer version.
+- **Add a committed static snapshot as the *last* fallback tier** — live → localStorage → a JSON file
+  checked into the repo (and precached by the SW). The first-ever open with no cache and no network
+  then still renders real data instead of an empty state. Two caveats wtq itself demonstrates: the
+  snapshot only works if it's **actually committed AND precached** (wtq's `fetchFromStatic()` fetches
+  a `quartets.json` that was never committed, so its bottom tier 404s — a fallback that only fires
+  when everything else has already failed is exactly the one you never notice is broken), and it goes
+  stale silently, so treat it as a floor, not a source — flag it `offline`/`static` in the badge above.
 - **Webfonts survive offline only if the SW caches them** — they aren't iOS system fonts; without the
-  cache an offline home-screen open falls back to Times/Courier.
+  cache an offline home-screen open falls back to Times/Courier. Same trap for a **CDN library**
+  (SheetJS, a charting lib): a `<script src="https://cdn…">` the app can't run without is a hard
+  offline dependency — an installed app with a manifest but an uncached CDN dep opens to nothing on a
+  plane. Precache the CDN URL in the SW, or vendor a local copy. (wtq loads both SheetJS and Google
+  Fonts from CDNs with no SW — installable, but not actually offline.)
 - **Have a build step? Content-hash the shell instead of hand-bumping `V`.** The `V`-bump above is the
   discipline for a no-build app; if a bundler already emits your files, rename `app.[hash].js` /
   `styles.[hash].css` per build, rewrite the references in the *deployed* HTML (leave the source on
@@ -230,12 +270,22 @@ The one that bites hardest and latest.
   automatically on every real change — nothing to forget, no `sw-lint` needed. quartet-log does exactly
   this: esbuild output + a `sw.js` template whose `V` is `bundlehash-csshash`, and it folds its data
   version into the bundle via a `--define` so even a pure data change busts the cache. Same effect as
-  `V`, minus the human.
+  `V`, minus the human. This is exactly what the framework toolchains automate: **Workbox** (via
+  `vite-plugin-pwa`'s `injectManifest`) globs the build output and injects `self.__WB_MANIFEST` — a
+  precache list where every entry carries a per-file revision hash, so cache invalidation keys off
+  those hashes with nothing to bump. Read the skeleton's `V`-bump + `sw-lint` as the **hand-rolled
+  version of that**: the same content-revisioning discipline, done by a human because there's no build
+  to do it. (Workbox 7.x / vite-plugin-pwa 0.20.x as of 2024–25.)
 
 ### Manifest / installability — `manifest.json`
 `start_url:"./"` + relative `scope` so it works as a project page. Include a 512 `maskable` icon or
 Android crops your square badly — and make the maskable a **full-bleed** tile (background fill, logo
-inside the center-80% safe zone), not your transparent favicon, or the mask eats the edges. Note: an
+inside the center-80% safe zone), not your transparent favicon, or the mask eats the edges. The spec
+is concrete: the guaranteed-visible safe zone is a **circle of radius 40% of the icon width** (= the
+central 80%), and the tile needs an **opaque background covering the whole area** or the mask crops
+into art; set the manifest icon's `"purpose": "maskable"` (or `"any maskable"` on one icon to serve
+both). Preview the crop across the OS mask shapes (circle / squircle / teardrop) at **maskable.app**
+before shipping — it's a GUI eyeball-check, not something `make-icons.sh` can automate. Note: an
 installed copy opens `start_url` many times — so the page you want opened *daily* should be the root,
 and a "read once" invite/about page should be a *separate* URL you send, not the root.
 
@@ -333,11 +383,54 @@ skeleton's `theme.js` implements the contract — `subscribe()`, `getCssColor()`
 `invalidateColorCache()` that `notify()` fires *before* subscribers; `app.js`'s `onThemeChange()` is
 the consumer (repaint from cached data, no refetch). The pre-paint stamp lives in `index.html`.
 
-### Analytics — cheap, private, no third party — `ping.js`, `scripts/analytics.gs`, `usage/`
-When the audience is small and known, **a log you own beats a dashboard you rent.**
-- A ~10-line Apps Script **bound to a private Google Sheet**, deployed as a web app (*Execute as: Me*
-  / *Access: Anyone*) = an append-only mailbox: anyone can drop a row, only you can read the sheet.
-  No server, no cost, no consent banner, no third party.
+### Google Sheets as a backend — read, write, and picking the access path — `ping.js`, `data.js`, `scripts/analytics.gs`
+A private Google Sheet is the no-backend datastore these apps keep reaching for: free, no server,
+editable from your phone, and you already trust Google with the data. **Writes** have exactly one path
+(an Apps Script web app); **reads** have four, and the choice is a trade between *how much of the doc
+you expose*, *whether you need it live*, and *how much parsing you ship*. Pick from the table, then
+see §Analytics for the write path worked end-to-end and wtq for a read one.
+
+| Access | R/W | Exposes | Parse | Fresh? | Reach for it when |
+|---|:--:|---|---|---|---|
+| **Apps Script web app** (`doPost`/`doGet`, *Execute as: Me / Access: Anyone*) | R **+ W** | nothing — doc stays fully private, only the deployed function is public | you shape the JSON | live | the only way to **write**; also the only **private live read** (return just the columns you code) |
+| **Publish-to-web CSV** (`/d/e/…/pub?gid=…&single=true&output=csv`) | R | only the **published tab** | trivial (`split`) | snapshot, ~min lag | the default read — one flat tab, zero dependencies |
+| **Publish-to-web xlsx** (`…/pub?output=xlsx`) | R | only the published tab(s) | needs **SheetJS** | snapshot, ~min lag | many tabs, cell **colors/styling as data**, or real types (wtq) |
+| **gviz query** (`/d/{id}/gviz/tq?tqx=out:csv&sheet=…&tq=select…`) | R | the **whole doc** (must be link-viewable) | CSV clean; JSON is wrapped | live | filter / select columns server-side without writing a script |
+| **Sheets API v4** (`…/v4/…/values/{range}?key=…`) | R (W w/ OAuth) | whole doc **+ your API key in the client** | JSON | live | basically never here — skip unless you already have auth |
+
+**The exposure column is the one that bites.** *Publish to web* makes only the tab you publish public —
+the rest of the document stays private, independent of share settings — which is why both the
+analytics mailbox and the `usage/` dashboard use it. *gviz* and the *Sheets API* read the **live**
+document, so they require it be link-viewable and then expose **all** of it to anyone with the id.
+*Apps Script* is the privacy maximalist: the doc is fully private and the endpoint returns only what
+you code. So — writing, or a live read you won't make the whole sheet public for → Apps Script; a
+simple public read → publish a tab; and the cute trick worth knowing (wtq) is that a **published xlsx
+carries cell fills**, so *formatting becomes metadata* (background color = editorial status) and the
+author never types a status column.
+
+Gotchas, each of which cost a debugging session:
+- **A plain Save doesn't redeploy an Apps Script** — Manage deployments → New version, or you're
+  editing a script nobody's calling.
+- **All-digit and date-like text get coerced** — an id `0042` becomes `42`, "2/3" becomes a `Date`.
+  Format the column Plain-text (Apps Script side); read the cell's display text (`.w`, not `.v`) on
+  the SheetJS side. The all-digit case silently breaks a hash/id join.
+- **`/pub` lags and caches** — a publish-to-web read can be minutes behind the live sheet; fine for
+  stale-while-revalidate, wrong if you need read-your-writes.
+- **A published or link-shared tab is public forever to anyone with the URL** — keep no PII in it;
+  hold names in a private tab and join at runtime (the analytics `=UID()` trick).
+- **gviz JSON is wrapped** in `/*O_o*/google.visualization.Query.setResponse(…)` — strip it, or use `out:csv`.
+- **A worksheet name can carry a trailing space** (`"Played "`) — exact-match tab lookups miss it.
+- **Keep `doGet`/parsers tolerant of missing or old-shaped rows forever** — offline-queued writes ship
+  yesterday's column layout.
+
+Wire any read through the same stale-while-revalidate + committed-snapshot fallback as any cross-origin
+data (§Offline) and surface the live/cached/offline state in the UI; `DATA_URL` in `data.js` is where
+the read URL lands (empty = disabled, like `ping.js`'s `URL_`).
+
+### Analytics — an application of the sheet backend — `ping.js`, `scripts/analytics.gs`, `usage/`
+When the audience is small and known, **a log you own beats a dashboard you rent.** This is the *write*
+side of §Google Sheets as a backend put to one use — recording opens into an Apps Script mailbox
+(anyone can drop a row, only you can read the sheet). What's analytics-specific on top of the transport:
 - `ping.js` **queues opens in `localStorage` and flushes when online** (fire-and-forget, loaded last,
   never blocks render) — offline opens are recorded at open time, delivered later.
 - Identify users by a **one-way hash** of a stable name (first 4 bytes of SHA-256), never the name —
@@ -345,19 +438,36 @@ When the audience is small and known, **a log you own beats a dashboard you rent
   Empty uid = an anonymous open (a useful "a stranger found the URL" tripwire).
 - **`URL_` empty = disabled but harmless** — ship the client before the backend exists; the backlog
   flushes when the URL lands.
-- The **`usage/` dashboard** reads the same data back client-side: the pings tab's *Publish-to-web
-  CSV* (CORS-clean; the sheet stays private, only that tab is published), crunched in the browser
-  (`usage/crunch.js`), stale-while-revalidate from localStorage, `noindex`. Names never enter the
-  repo — uids only; join names at runtime if you want them.
-- Gotchas that cost real debugging: a plain **Save doesn't redeploy** an Apps Script (Manage
-  deployments → New version); **all-digit hashes get coerced to numbers** unless the column is
-  Plain-text formatted (breaks the reverse lookup); keep `doGet` tolerant of missing params forever
-  (old queued pings ship yesterday's shape).
+- The **`usage/` dashboard** reads the same data back — a publish-to-web CSV of the pings tab (the read
+  path from the table above), crunched in the browser (`usage/crunch.js`), stale-while-revalidate from
+  localStorage, `noindex`. Names never enter the repo — uids only; join at runtime if you want them.
+
+### Multi-page — the shared-nav pattern — `nav.css`
+This skeleton is a one-pager, but the moment there's a second HTML page (AKM has seven), two things
+change. **CSS splits** (already the rule: inline is fine for a strict one-pager, split to `styles.css`
+the instant there's a second page), and you need a **shared nav that doesn't fork per page**. AKM's
+pattern, worth copying: the nav markup is *static in each page's HTML* (no JS builds it — it must
+render before the bundle so there's no flash), and one `nav.css` styles it by **reusing each page's
+own palette tokens** (`var(--ink/--muted/--line/--accent)`) rather than hard-coding colors — so the
+nav themes correctly (light **and** dark) on every page with zero per-page overrides. Mark the current
+page with **`aria-current="page"`** (static in the markup, not a JS-added class — it's the semantic
+signal *and* the style hook), and collapse the wordmark to an abbreviation at a narrow breakpoint so it
+never wraps into the links. One `SHELL` in `sw.js` enumerates every page + its JS + data so the whole
+app is offline, and — the earlier note bites here — the page an installed copy reopens daily should be
+the root; "read once" pages (about, invite) are *separate* URLs you send.
 
 ### Deploy
 GitHub Pages, `main`/root, relative paths → `user.github.io/repo/`. After deploy, open the URL
 **online once** to prime the SW cache, then Add to Home Screen. The only thing verifiable *live* is a
 real cross-origin fetch — if that data renders at the Pages URL, everything downstream is proven.
+
+**Decide public vs private up front — it's an indexing + PII posture, not an afterthought.** A public
+app is fine to leave crawlable. A **private participant tool** (AKM: a roster app for one festival's
+players) should be un-findable: put `<meta name="robots" content="noindex,nofollow">` on **every**
+page *and* a site-wide `robots.txt` (`Disallow: /`) — belt and suspenders, since the meta and the file
+each cover cases the other misses — and keep PII out of the repo entirely (hold names in a private
+sheet, join at runtime; no committed fixtures). Note a `noindex` page is still *public to anyone with
+the URL* — indexing control is not access control.
 
 ### Reproducible dev environment (for Claude sessions)
 If a project needs system tools to build/test (a headless browser for screenshots, `rsvg-convert`
@@ -374,6 +484,25 @@ The full human-readable dependency table lives in the README's *Toolchain* secti
 them — but they pull no packages, so plain `python3` works identically; uv is a convenience, not a
 requirement.
 
+### Testing without a build — `package.json` as a dev-only harness
+A no-build app can still have real tests — the trick is keeping the harness *off* the deployed site.
+AKM keeps a `package.json` whose own description says it plainly ("the site itself is static, this is
+just the test harnesses"): `private: true`, a `playwright-core` devDependency, and `node` test scripts
+— **no bundler, no build step reaches the shipped files.** The site stays hand-written; the tests are
+tooling that never deploys (same segregation as `scripts/`). Two patterns worth stealing:
+- **Network-gate any test that hits live data — skip (exit 0), don't fail, when it's unreachable.**
+  AKM's tests that read the live Google Sheet exit cleanly offline or in a locked-down sandbox instead
+  of going red, so "no network" never reads as "broken" (same idea as `setup-environment.sh` being
+  non-fatal). Pure-logic tests run off a committed fixture and pass anywhere; PII-bearing data gets no
+  committed fixture, so its tests are live-only and gated.
+- **Test the *working tree* on a real phone before pushing — a Node/Playwright harness can't see a
+  touchscreen.** Touch-only bugs (a `click`/`pointerdown`/`touchstart` handler that only misfires on
+  iOS — see the double-fire gotcha in §Mobile) need a real device. AKM's method: `python3 -m http.server
+  8000 --bind 0.0.0.0` + `ngrok http 8000` for a public HTTPS URL, opened in an **iOS Safari Private
+  tab — which doesn't register the service worker, so nothing caches** and every reload is the latest
+  code. That last bit is the point: it rules out "is this my fix or a stale SW?" at the same time, the
+  question that otherwise eats an hour on any installed PWA.
+
 ---
 
 ## Gotchas grab-bag (each cost time once, across these repos)
@@ -387,7 +516,17 @@ requirement.
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
   lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
+- **Testing a fix on an installed PWA** → you're fighting the SW cache, not your code. Test the working
+  tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
+- **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
+  blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
+- **Static fallback file never committed** → the bottom offline tier 404s, and since it only fires
+  after live *and* cache have both failed, you never notice until you're offline. Commit + precache it.
+- **Sheets: all-digit / date-like values coerced** → `0042`→`42` (breaks an id/hash join), `2/3`→a
+  `Date`; format Plain-text, read `.w` not `.v`, mind trailing-space tab names. (§Google Sheets as a backend)
 - **No `viewport` / `viewport-fit` / safe-area** → tiny text, or content under the notch.
+- **Meaning in color alone** (red/green status, a colored dot) → invisible to the ~8% of men who are
+  red-green colorblind. Pair every color with a word, glyph, or shape.
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
   double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
 - **Manifest but no `apple-*` metas** → Android installs clean, iOS install looks broken.
@@ -401,8 +540,8 @@ requirement.
   link" button instead.
 - **iOS resumes, doesn't reload** → stale data unless you re-pull on `visibilitychange`.
 - **Print with dark-mode CSS** → wastes ink; links unclickable on paper. `@media print` resets.
-- **Analytics: plain Save instead of redeploy** → you're editing a script nobody's calling.
-- **Analytics: all-digit hash coerced to a number** → reverse lookup silently misses ~2% of users.
+- **Sheets: a plain Save doesn't redeploy the Apps Script** → you're editing a script nobody's calling
+  (Manage deployments → New version). See §Google Sheets as a backend for the rest.
 - **Named the root the "invite" page** → installed copies open it daily; keep root = the daily app.
 - **PII in the repo** → a `noindex` page is still public to anyone with the URL. Keep data in a
   separate view-only sheet, pulled at runtime, never committed.
