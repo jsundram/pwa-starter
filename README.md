@@ -80,7 +80,7 @@ Every rule here was paid for once, in one of these apps. The first four are the 
 then retrofitted it"* origin story — each grew the same set of late-added features (share card,
 offline, install polish, dark mode, analytics), and the diff between them is the
 [maturity gradient](CLAUDE.md#the-maturity-gradient-why-the-checklist-exists) the checklist is built
-from. The last two are build-step / advanced-pattern references CLAUDE.md points at as worked
+from. The last three are build-step / advanced-pattern references CLAUDE.md points at as worked
 examples.
 
 | App | Contributed |
@@ -91,3 +91,4 @@ examples.
 | [AKM](https://github.com/jsundram/akm) | The mature end of the gradient: full checklist incl. the `V`-bump + `sw-lint` cache-bust discipline (the "v77" stale-cache lesson) and its own private-sheet analytics. |
 | [quartet-log](https://github.com/jsundram/quartet-log) | The build-step variant: esbuild output with content-hashed cache-busting (`V` = `bundlehash-csshash`), the JS-baked-color theme `rerender()` contract, and `?data=` setup-link seeding. |
 | [wtq](https://github.com/jsundram/wtq) (Well-Tempered Quartet) | Manifest + home-screen install with stale-while-revalidate offline *data* via `localStorage` (no service worker, so the app shell itself isn't offline) — the real-world case behind `data.js`'s timeout-race-then-serve-cache pattern, and the Google-Sheets-as-backend read paths. |
+| [gallery-deck](https://github.com/jsundram/gallery-deck) | The app that *graduated past the skeleton* (grew a FastAPI + SQLite + media backend) — the boundary case for "no backend." Contributes neighbor-prefetch for swipe smoothness and the self-hosted-over-Tailscale deploy path. |

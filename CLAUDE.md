@@ -180,24 +180,33 @@ live regions, WCAG AAA) unless you know a user needs it.
 
 ## The maturity gradient (why the checklist exists)
 
-The four source apps land at different points on exactly these axes; the gaps are the lesson.
+The four source apps land at different points on exactly these axes; the gaps are the lesson. The
+fifth column, gallery-deck, is the boundary case — it clears the checklist that matters for its
+deployment (a private tailnet tool) but crosses the last row.
 
-| Capability | boccherini | haydn web | lobsters | AKM |
-|---|:-:|:-:|:-:|:-:|
-| Dark mode / responsive | ✅ | ✅ | ✅ | ✅ |
-| Favicon / icons | ❌ | ✅ | ✅ | ✅ |
-| OG / share card | ❌ | ✅ | ✅ | ✅ |
-| `apple-*` / theme-color | ❌ | partial | ✅ | ✅ |
-| Web app manifest | ❌ | ❌ | ✅ (runtime) | ✅ |
-| Offline service worker | ❌ | ❌ | ✅ (inlined) | ✅ |
-| Cache-bust discipline (`V` + lint) | — | — | — | ✅ |
-| Usage analytics | ❌ | GoatCounter | ❌ | ✅ (own sheet) |
+| Capability | boccherini | haydn web | lobsters | AKM | gallery-deck |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Dark mode / responsive | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Favicon / icons | ❌ | ✅ | ✅ | ✅ | ✅ |
+| OG / share card | ❌ | ✅ | ✅ | ✅ | ❌ |
+| `apple-*` / theme-color | ❌ | partial | ✅ | ✅ | partial |
+| Web app manifest | ❌ | ❌ | ✅ (runtime) | ✅ | ✅ |
+| Offline service worker | ❌ | ❌ | ✅ (inlined) | ✅ | ✅ (shell) |
+| Cache-bust discipline (`V` + lint) | — | — | — | ✅ | `V`, no lint |
+| Usage analytics | ❌ | GoatCounter | ❌ | ✅ (own sheet) | ❌ |
+| Backend / DB | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 Git history says the retrofits were remarkably uniform: **share-sheet metadata + a preview image**
 (added late in lobsters *and* both haydn pages), **dark mode** (a whole PR saga in boccherini,
 including a separate pass just for print/PDF), **mobile layout and tap-fallbacks for hover tooltips**
 (haydn's scatter, boccherini's "mobile tooltips"), **favicons + meta polish**, **analytics**, and in
 boccherini even the **`viewport` tag itself**. This skeleton front-loads all of it.
+
+gallery-deck is the app that **graduated past the skeleton**: scaffolded from it, then grown a
+FastAPI + SQLite + media backend — proof the "no backend" boundary is real, and where you stop
+reaching for this checklist and start writing a server. It kept just three skeleton ideas (the SW
+`V`-bump/network-first shell, the tap-to-update `#ver` tag, CSS-variable theming) and still managed a
+fresh instance of the `sw.js` probe-cache gotcha below — the doc was right, the app forgot the guard.
 
 ---
 
@@ -362,6 +371,14 @@ const buildSetupLink = v => `${location.origin}${location.pathname}?data=${encod
   backgrounded tab never fetches and a fresh one isn't re-hit. The skeleton ships all three:
   `pullToRefresh.js` (the gesture, standalone-only) plus the gated `maybeRefresh()` poll and resume
   re-pull in `app.js`. Background Sync isn't an option — iOS standalone doesn't support it.
+- **Prefetch the neighbors of any next/prev sequence.** A gallery, carousel, or paginated deck feels
+  janky when a swipe lands on an undecoded image — the fix is to warm the browser HTTP cache for the
+  neighbors *before* the user gets there: prefetch next **and** prev (an `Image()` with
+  `decoding="async"` is enough), plus the **first item of the *next* group** so crossing a boundary
+  is smooth too, not just steps within a group. Cheap, pure-client, and the single biggest
+  perceived-smoothness win for a swipeable UI. gallery-deck's `prefetchNeighbors()` is the worked
+  example — it warms the next/prev image in the current gallery *and* the first image of the next two
+  posts (the core down-swipe loop) plus the previous post.
 
 ### Dark mode — `styles.css`, `theme.js`
 Two entry points, both cheap: `@media (prefers-color-scheme: dark)` (what users get) and a `.dark`
@@ -468,6 +485,16 @@ page *and* a site-wide `robots.txt` (`Disallow: /`) — belt and suspenders, sin
 each cover cases the other misses — and keep PII out of the repo entirely (hold names in a private
 sheet, join at runtime; no committed fixtures). Note a `noindex` page is still *public to anyone with
 the URL* — indexing control is not access control.
+
+**GitHub Pages isn't the only target — a private PWA can be self-hosted.** gallery-deck runs on a Mac
+mini and reaches the phone over **Tailscale Serve (HTTPS)** instead of Pages; installability + the SW
++ offline all still matter *identically*, but the checklist reshapes — the share card, `robots`, and
+"prime online once" drop to low-stakes for a tool only ever opened on your own tailnet. Two moves
+worth stealing whatever the host: pick a **neutral hostname before any HTTPS cert is issued** (cert
+hostnames land in *public* Certificate Transparency logs, so a descriptive name leaks the app's
+existence to the world — access control the `noindex` above can't give you), and default a
+private-network tool to **localhost-bind + a strict same-origin CSP** so it's not reachable or
+embeddable beyond where you put it.
 
 ### Reproducible dev environment (for Claude sessions)
 If a project needs system tools to build/test (a headless browser for screenshots, `rsvg-convert`
