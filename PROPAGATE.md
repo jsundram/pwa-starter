@@ -31,6 +31,20 @@ work flowing the other way. So when an app grows something general, **port it he
 stamp catch up** — don't leave it downstream and rely on remembering, which is the exact failure this
 whole mechanism exists to prevent. `musiclog` is the standing example in both directions.
 
+**Known non-copies — do not stamp.** The checker recognizes candidates by fingerprint, and a
+fingerprint can only prove *resemblance*, not descent. Confirm a file is genuinely vendored before
+adopting it; these are the standing false positives:
+
+| Flagged | Why it isn't a copy |
+|---|---|
+| `quartet-log/src/app.js` (a.k.a. `viz.runningwithdata.com/musiclog`) | 573-line ES-module `export class App` vs. this skeleton's 178-line classic script. Shares only `VER_PREFIX`, the fingerprint. |
+| `quartet-log/src/pullToRefresh.js` | Independent implementation of the same idea, with its own prose and code — and it's the **ancestor**: this skeleton's version was written from it. |
+
+quartet-log is the sharpest case of the two-way flow above: it originated the cache-first paint
+(`3322370`) and the empty-payload guard (`fd71bde`) that became `ddd9ab8` here, and it already has
+both. Reporting it "behind" that commit would be backwards. Its shared ideas are **reimplemented, not
+vendored**, so the stamp mechanism can't track it — review it by hand.
+
 **Stamping an app you didn't just sync?** Use `--at <sha>` with the commit it actually matches, not
 `HEAD`. A stamp at HEAD claims it has changes it doesn't, and the checker will report it clean while
 it's silently behind. When the true fork point is unknown, stamping at a known-good audit baseline is
