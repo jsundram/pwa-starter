@@ -133,6 +133,15 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] **A version constant `V` bumped on every shell change** — the #1 gotcha
 - [ ] `app.js`'s `VER_PREFIX` matches `sw.js`'s `V` prefix (drives the "tap to update" tag)
 - [ ] `sw-lint.py` wired into the pre-commit hook / CI
+- [ ] **No uncached third-party dependency** — every `<script src="https://cdn…">`, webfont, and CSS
+  the app can't run without is either **precached in `SHELL`** or **vendored locally**. This is the
+  one that passes every other check and still opens blank on a plane: the manifest installs fine, the
+  shell caches fine, and the app dies on a CDN it can't reach. Vendoring is the safer of the two (a
+  precached CDN URL still breaks if the CDN changes the path, and pins you to their uptime + privacy
+  posture); haydn and boccherini both self-host d3, wtq loads SheetJS + Google Fonts from CDNs.
+- [ ] **Cache writes gated on `resp.ok`** (with opaque responses exempt) — an HTTP error is a
+  *resolved* fetch and will otherwise overwrite good cached files
+- [ ] Data `.json` served stale-while-revalidate, not network-first, so first paint doesn't block on it
 - [ ] Tested offline: load online once, kill the network, reopen — still works
 
 **Mobile** — head + `styles.css`
@@ -179,6 +188,13 @@ live regions, WCAG AAA) unless you know a user needs it.
 ---
 
 ## The maturity gradient (why the checklist exists)
+
+**This table is a historical snapshot, deliberately not maintained.** It records the state of the
+source apps *at the time they motivated this skeleton* — it's the evidence for why each checklist row
+exists, not a status board. Several of these apps have since been retrofitted *from* this skeleton
+(boccherini and haydn both have manifests and service workers now), which would make a
+kept-current version circular: the apps that taught the checklist now pass it because of it. For
+"which repos are downstream and need a fix propagated," see the registry, not this table.
 
 The four source apps land at different points on exactly these axes; the gaps are the lesson. The
 fifth column, gallery-deck, is the boundary case — it clears the checklist that matters for its
@@ -244,6 +260,16 @@ The one that bites hardest and latest.
   and your fix is in the repo but *never on anyone's phone* — iOS caches the SW aggressively. This
   bit AKM's "v77" rewrite (three commits, no bump, stale UI). `sw-lint.py` catches a staged `SHELL`
   file with an unchanged `V`.
+- **Gate the SW's cache writes on `resp.ok` — a `fetch()` only rejects on a *network* failure.** A 404
+  or a mid-deploy 502 arrives as a **resolved** response, so the naive
+  `fetch(req).then(resp => { c.put(req, resp.clone()); return resp; })` writes the error body over a
+  good cached copy, the `.catch()` never fires, and the poison survives as the offline fallback until
+  the next `V` bump. It's the shell-cache twin of "never cache an empty 200" below. Two subtleties:
+  serve the **cached copy on a non-ok response** too (don't hand the app an error page when you have
+  something good), and **exempt opaque responses** — a cross-origin `no-cors` fetch (webfont, CDN
+  script) always reports `ok:false`/`status:0`, so a bare `resp.ok` gate silently stops caching your
+  fonts and breaks offline type. `sw.js`'s `cachePut()` is the worked version. Every app that copied
+  this file before the fix has the bug at two call sites.
 - **`app.js` makes staleness visible + fixable in one tap:** it reads the installed cache name from
   `caches.keys()`, fetches the deployed `sw.js` (`?_=`+`no-store` to dodge both caches), and shows a
   tappable "installed → latest" tag when the server is ahead; tapping deletes all caches + reloads.
@@ -254,6 +280,47 @@ The one that bites hardest and latest.
   and *flag it stale in the UI* ("loaded from cache, N min old") so the user knows they're offline.
   The skeleton's `data.js` is that helper — `Data.load()` does the race, aborts the fetch on timeout,
   and returns `{data, stale, ageMs}`; `app.js` reads it and shows the stale tag.
+- **Then go cache-first, so the first paint doesn't wait on the network at all.** Network-first still
+  makes a returning visitor stare at the placeholder for up to the full timeout while a perfectly good
+  cached copy sits in localStorage — exactly the "installed app, spotty signal" case this skeleton
+  targets. Instead: read the cache *synchronously* and paint immediately, then revalidate in the
+  background and repaint **only if the payload actually changed** (a cheap serialized diff avoids a
+  needless flash). `data.js` exposes `Data.peek(key)` (sync, no network) and `Data.revalidate(url)`
+  (network-only, returns a `changed` flag); `app.js`'s `render()` is `peek → paint → revalidate →
+  repaint if changed`, awaiting the network only on a true first run. quartet-log's `3322370`.
+- **Never cache an empty 200 — under cache-first it's not a stale-data bug, it's a wedge.** A valid
+  but degenerate response (a transient server hiccup, a momentarily-empty sheet, a range that matched
+  nothing) is still a `200`, and a naive `writeCache(key, await resp.json())` persists `[]`/`{}`/`null`
+  happily. Network-first makes that a soft bug: the empty value quietly becomes the offline fallback
+  served on every later timeout. Cache-first makes it *fatal* — `peek()` serves the empty payload,
+  `paint()` throws, and since you painted from cache before revalidating, a reload just re-reads the
+  same poisoned entry; the app can't self-heal without clearing localStorage. So gate the write on a
+  validity predicate and treat an invalid payload exactly like a network failure — throw, fall back to
+  the good cache, **don't overwrite it**. "Empty" is app-specific (`[]` vs `{}` vs `{items:[]}`), so it's
+  `opts.valid`; `data.js`'s default rejects nullish and `[]`. quartet-log's `fd71bde`. Ship this
+  *before* the cache-first paint above, never after — it's the guardrail that makes cache-first safe.
+- **Cache-first paints twice — make the second paint gentle.** This is the cost of the instant paint
+  above: the user is already *reading* when the network lands, so a naive repaint resets scroll, drops
+  focus, and pops layout. Note the SW's stale-while-revalidate can't cause this (one request → one
+  response; its refresh lands silently and shows up on the *next* load) — the jank lives entirely in
+  the app-layer `peek → paint → revalidate → repaint` path. Four defenses, in descending order of how
+  much they matter:
+  1. **Don't repaint unless the payload changed.** `Data.revalidate()`'s `changed` flag kills the
+     common case outright — most revalidations return identical bytes, and repainting those is pure
+     cost. This one defense is worth more than the other three combined.
+  2. **Restore scroll position** — rebuilding a container resets it to 0, which on a phone reads as
+     the app "jumping" for no reason.
+  3. **Crossfade the swap** with `document.startViewTransition(swap)` where supported, so content
+     changes rather than blinking. Gate it on `prefers-reduced-motion: reduce` (a crossfade is
+     non-essential motion), and let unsupported browsers fall through to the plain swap.
+  4. **Don't update at all while the user is mid-interaction.** A form being typed into, an open menu,
+     a drag in flight — replacing content under any of those is worse than showing data a minute old.
+     The move is to *hold* the update and surface an unobtrusive "new data — tap to refresh" affordance,
+     exactly like the `#ver` tag does for a new service worker. Deliberately not in the skeleton:
+     "mid-interaction" is app-specific enough that a generic version would be wrong everywhere.
+
+  `app.js`'s `applyUpdate()` implements 1–3; 4 is yours. The floor for an app with real DOM is at least
+  1 and 2 — 3 is polish.
 - **Give staleness a visible badge, not just a tooltip.** wtq surfaces `data.js`'s state as a
   three-way colored footer chip — `live` (green) / `cached` (amber) / `offline` (red) — so "am I
   looking at fresh data?" is answerable at a glance. That's the concrete UI for the `{stale, ageMs}`
@@ -496,6 +563,35 @@ existence to the world — access control the `noindex` above can't give you), a
 private-network tool to **localhost-bind + a strict same-origin CSP** so it's not reachable or
 embeddable beyond where you put it.
 
+### Propagating a fix to downstream copies — `PROPAGATE.md`, `scripts/check-downstream.py`
+Apps built from this skeleton **vendor its files by copy**, not by dependency — deliberately, since
+the premise is that deployed files need no build step. The cost is that a fix here reaches nobody:
+`sw.js`'s ungated cache write shipped to three apps before anyone noticed. A submodule or npm package
+would solve tracking and break the premise, so the answer is copy *with provenance*.
+
+The trap to avoid is comparing file contents. Every downstream copy is **legitimately modified** — its
+own `SHELL` list, its own `V` prefix, branches deleted for features it doesn't use (boccherini and
+haydn both correctly dropped the Google Fonts handler rather than carry dead code). A diff is always
+non-empty, so it tells you nothing. The useful question is *"which commit of ours was this synced
+from, and have we touched that file since?"* — which makes drift a **git range**, not a diff:
+
+```js
+// pwa-starter: sw.js @ bd16c21          ← one line, near the top, survives local edits
+```
+
+Three parts, each covering a failure the others don't:
+- **The stamp is the registry.** A hand-kept `DOWNSTREAM.md` rots the first time you forget to add a
+  repo, and fails silently. `check-downstream.py` instead walks a tree of clones, reads stamps, and
+  — the part that matters — flags **unstamped files that are recognizably ours** by fingerprint, so a
+  repo you forgot surfaces itself. (Its first run turned up a copy in `viz.runningwithdata.com` that
+  hadn't come up in any manual audit.)
+- **`PROPAGATE.md` supplies the judgment.** "4 commits behind `sw.js`" is noise if three are comment
+  tweaks. Only entries needing downstream *action* get listed, so the checker can print a real to-do
+  list and mark unlisted commits "may be cosmetic". Silence there is meaningful — keep it that way by
+  not logging churn.
+- **Ordering can matter.** `data.js`'s empty-payload guard must land *before* its cache-first paint,
+  or a cosmetic bug becomes an app-wedging one. Say so in the entry; the sha order won't.
+
 ### Reproducible dev environment (for Claude sessions)
 If a project needs system tools to build/test (a headless browser for screenshots, `rsvg-convert`
 for icons, `qpdf` for PDFs), put them in a `tools/setup-environment.sh` that's idempotent and detects
@@ -547,6 +643,12 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
   tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
 - **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
+- **SW cached a 404/502 body** → `fetch()` resolves on an HTTP error, so an ungated `c.put()` overwrites
+  a good cached file with an error page that outlives the outage. Gate on `resp.ok` — but exempt
+  opaque responses or you silently stop caching webfonts. (§Offline)
+- **Cached an empty 200** → the degenerate response becomes your offline fallback. Under cache-first
+  it wedges the app permanently (paint from a poisoned cache, reload, repeat). Gate `writeCache` on a
+  validity predicate. (§Offline)
 - **Static fallback file never committed** → the bottom offline tier 404s, and since it only fires
   after live *and* cache have both failed, you never notice until you're offline. Commit + precache it.
 - **Sheets: all-digit / date-like values coerced** → `0042`→`42` (breaks an id/hash join), `2/3`→a
