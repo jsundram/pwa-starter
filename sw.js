@@ -5,12 +5,15 @@
 // installed home-screen copy (iOS caches the SW aggressively). scripts/sw-lint.py guards this,
 // and app.js surfaces a "tap to update" tag so a stuck phone is fixable in one tap.
 //
-// Strategy: shell HTML/JS/JSON is network-first (a push is visible on the next reload without
-// waiting for a SW swap; falls back to cache offline); big static assets (images) stay cache-first
-// for speed — a V bump is what refreshes them. Cross-origin data (your APIs) passes straight through.
+// Strategy, by what the file IS rather than where it lives:
+//   HTML/JS + navigations → network-first (a push is visible on the next reload without waiting
+//     for a SW swap; falls back to cache offline)
+//   JSON → stale-while-revalidate (it's data: paint from cache now, refresh behind it)
+//   images and everything else → cache-first for speed; a V bump is what refreshes them
+//   cross-origin data (your APIs) → straight through, never cached here
 // Every cache write goes through cachePut(), which refuses to store an HTTP error.
 
-const V = "app-v3";   // <-- BUMP ON EVERY SHELL CHANGE
+const V = "app-v4";   // <-- BUMP ON EVERY SHELL CHANGE
 const SHELL = [
   "./", "./index.html", "./styles.css",
   "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./ping.js", "./manifest.json",
@@ -66,8 +69,25 @@ self.addEventListener("fetch", e => {
   // with ignoreSearch — serves a stale version back, wedging the "tap to update" tag.
   if (u.pathname.endsWith("/sw.js")) return;
 
-  // Same-origin: HTML/JS/JSON + navigations → network-first; other assets (images) → cache-first.
-  const live = e.request.mode === "navigate" || u.pathname.endsWith("/") || /\.(html|js|json)$/.test(u.pathname);
+  // Same-origin JSON → stale-while-revalidate: serve the cached copy IMMEDIATELY,
+  // refresh behind it. This is the SW twin of data.js's cache-first paint. JSON here
+  // is DATA (a committed dataset, the manifest), and network-first made every cold
+  // start block on a round trip for it even with a perfectly good cached copy — the
+  // exact stall that made haydn-info-card and quartets.boccherini.org wait on 100 KB+
+  // of static JSON before first paint. The tradeoff is real but small: a JSON change
+  // lands one load later than an HTML/JS change. If some .json of yours is genuinely
+  // code-like and must be live, move it into the `live` test below.
+  if (/\.json$/.test(u.pathname)) {
+    e.respondWith(caches.match(e.request).then(cached => {
+      const net = fetch(e.request).then(resp => { cachePut(e.request, resp); return resp; });
+      e.waitUntil(net.catch(() => {}));   // keep the SW alive for the refresh; offline is fine
+      return cached || net;               // no cached copy (first run) → wait for the network
+    }));
+    return;
+  }
+
+  // Same-origin: HTML/JS + navigations → network-first; other assets (images) → cache-first.
+  const live = e.request.mode === "navigate" || u.pathname.endsWith("/") || /\.(html|js)$/.test(u.pathname);
   if (live) {
     e.respondWith(
       fetch(e.request).then(resp => {
