@@ -16,17 +16,69 @@ const STALE_MS = 5 * 60 * 1000;    // cached data older than this is worth re-fe
 let lastData = null;               // last payload, so a theme change can repaint without refetching
 
 // ---- data + rendering ------------------------------------------------------
+// CACHE-FIRST: peek → paint → revalidate → repaint only if changed. A returning
+// visitor sees real data instantly instead of the placeholder, even on a flaky
+// connection; the network round-trip happens behind the already-painted UI. Only
+// the true first run (nothing cached) falls back to awaiting the network.
 async function render(){
   const app = document.getElementById("app");
   if(!DATA_URL) return;            // no endpoint wired yet — leave the placeholder copy in index.html
-  try{
-    const res = await Data.load(DATA_URL, { key: DATA_KEY, timeoutMs: 5000 });
-    lastData = res.data;
-    paint(res.data);
-    showStale(res);
-  }catch{
-    app.textContent = "Couldn't load data and nothing is cached yet — reconnect and reopen.";
+
+  // Only the boot call needs the cache paint; on a poll/resume/PTR re-render the
+  // screen already shows this data, so painting it again would just flash.
+  const cached = lastData === null ? Data.peek(DATA_KEY) : null;
+  if(cached){                      // instant paint from the cache, no await
+    lastData = cached.data;
+    paint(cached.data);
+    showStale(cached);
   }
+
+  try{
+    const res = await Data.revalidate(DATA_URL, { key: DATA_KEY, timeoutMs: 5000 });
+    if(res.changed || lastData === null){   // skip the repaint (and its flash) when nothing moved
+      const first = lastData === null;
+      lastData = res.data;
+      if(first) paint(res.data);            // nothing on screen yet — no transition to make
+      else applyUpdate(res.data);           // replacing live content — do it gently
+    }
+    showStale(res);                // always: clears the "cached · N min old" tag
+  }catch{
+    // Offline, timed out, or the endpoint returned an empty/invalid payload —
+    // data.js refused to cache it, so whatever is on screen is still the best
+    // copy we have. Only a run that never painted anything has nothing to show.
+    const c = Data.peek(DATA_KEY);
+    if(c) showStale(c);            // re-flag it stale: the network read didn't land
+    else if(lastData === null) app.textContent = "Couldn't load data and nothing is cached yet — reconnect and reopen.";
+  }
+}
+
+// Swap in freshly-revalidated data WITHOUT yanking the page out from under the
+// reader. Cache-first means the user is already looking at content when the
+// network lands, so a naive paint() resets scroll, drops focus, and pops layout.
+// Three cheap defenses, in order of how much they matter:
+//   1. don't repaint at all unless the payload changed  (res.changed, in render)
+//   2. restore scroll — rebuilding a container resets it to 0
+//   3. crossfade the swap via a View Transition where supported, so content
+//      changes instead of blinking. Skipped under prefers-reduced-motion;
+//      unsupported browsers just take the plain path.
+// The focus restore below is a BONUS, not a guarantee: it only fires if paint()
+// patches in place. A paint() that wipes and rebuilds its container destroys the
+// focused node, so document.contains() fails and focus is simply lost — recovering
+// it there means re-finding the element by id, which only your paint() can do.
+// What's deliberately NOT here: deferring the update while the user is mid-
+// interaction. That's real (see CLAUDE.md) but "mid-interaction" is app-specific
+// — a form being typed into, a menu open, a drag in flight — so it belongs in
+// your shouldDefer(), not in the skeleton.
+function applyUpdate(data){
+  const y = scrollY, active = document.activeElement;
+  const swap = () => {
+    paint(data);
+    if(scrollY !== y) scrollTo(0, y);
+    if(active && active !== document.activeElement && document.contains(active)) active.focus();
+  };
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(document.startViewTransition && !still) document.startViewTransition(swap);
+  else swap();
 }
 
 function paint(data){

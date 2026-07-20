@@ -13,7 +13,7 @@
 //   cross-origin data (your APIs) → straight through, never cached here
 // Every cache write goes through cachePut(), which refuses to store an HTTP error.
 
-const V = "app-v4";   // <-- BUMP ON EVERY SHELL CHANGE
+const V = "app-v5";   // <-- BUMP ON EVERY SHELL CHANGE
 const SHELL = [
   "./", "./index.html", "./styles.css",
   "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./ping.js", "./manifest.json",
