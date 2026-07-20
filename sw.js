@@ -8,8 +8,9 @@
 // Strategy: shell HTML/JS/JSON is network-first (a push is visible on the next reload without
 // waiting for a SW swap; falls back to cache offline); big static assets (images) stay cache-first
 // for speed — a V bump is what refreshes them. Cross-origin data (your APIs) passes straight through.
+// Every cache write goes through cachePut(), which refuses to store an HTTP error.
 
-const V = "app-v2";   // <-- BUMP ON EVERY SHELL CHANGE
+const V = "app-v3";   // <-- BUMP ON EVERY SHELL CHANGE
 const SHELL = [
   "./", "./index.html", "./styles.css",
   "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./ping.js", "./manifest.json",
@@ -28,13 +29,31 @@ self.addEventListener("activate", e => {
     .then(() => self.clients.claim()));
 });
 
+// Cache-write gate. A fetch() only REJECTS on a network failure — a 404 or a
+// mid-deploy 502 arrives as a RESOLVED response, so an ungated c.put() happily
+// overwrites a good cached copy with an error body, which then survives as the
+// offline fallback until the next V bump. (Same principle as data.js refusing to
+// cache an empty 200: a 200-shaped response isn't necessarily a good one.)
+//
+// Opaque responses are the exception that must NOT be gated: a cross-origin
+// no-cors fetch (a webfont, a CDN script) always reports ok:false and status:0
+// no matter how it went, so `resp.ok` alone would silently disable font caching
+// and break offline type. They're allowed through explicitly — the cost is that
+// a failed opaque request is indistinguishable from a good one, so a bad one can
+// still be cached. That's inherent to no-cors, not something the gate can fix.
+function cachePut(req, resp) {
+  if (!resp.ok && resp.type !== "opaque") return;
+  const copy = resp.clone();
+  caches.open(V).then(c => c.put(req, copy));
+}
+
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
 
   // Google Fonts (if used): cache-first so the type survives offline.
   if (u.hostname === "fonts.googleapis.com" || u.hostname === "fonts.gstatic.com") {
     e.respondWith(caches.open(V).then(c =>
-      c.match(e.request).then(r => r || fetch(e.request).then(resp => { c.put(e.request, resp.clone()); return resp; }))));
+      c.match(e.request).then(r => r || fetch(e.request).then(resp => { cachePut(e.request, resp); return resp; }))));
     return;
   }
 
@@ -52,16 +71,17 @@ self.addEventListener("fetch", e => {
   if (live) {
     e.respondWith(
       fetch(e.request).then(resp => {
-        const copy = resp.clone();
-        caches.open(V).then(c => c.put(e.request, copy));
+        cachePut(e.request, resp);
+        // A 4xx/5xx is a resolved fetch, so .catch() below never sees it — serve
+        // the good cached copy instead of handing the app an error page.
+        if (!resp.ok) return caches.match(e.request).then(r => r || resp);
         return resp;
       }).catch(() => caches.match(e.request).then(r => r || caches.match("./index.html")))
     );
   } else {
     e.respondWith(
       caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
-        const copy = resp.clone();
-        caches.open(V).then(c => c.put(e.request, copy));
+        cachePut(e.request, resp);
         return resp;
       }))
     );
