@@ -31,19 +31,34 @@ work flowing the other way. So when an app grows something general, **port it he
 stamp catch up** — don't leave it downstream and rely on remembering, which is the exact failure this
 whole mechanism exists to prevent. `musiclog` is the standing example in both directions.
 
-**Known non-copies — do not stamp.** The checker recognizes candidates by fingerprint, and a
-fingerprint can only prove *resemblance*, not descent. Confirm a file is genuinely vendored before
-adopting it; these are the standing false positives:
+**Only stamp whole-file copies.** This mechanism tracks provenance per *file*, because that's the
+granularity `git log <sha>..HEAD -- <file>` can answer. A fingerprint match proves only
+*resemblance*, so confirm a file is genuinely vendored end-to-end before adopting it. Two categories
+recur, and neither should be stamped:
+
+**Independent implementations** — same idea, own code:
 
 | Flagged | Why it isn't a copy |
 |---|---|
 | `quartet-log/src/app.js` (a.k.a. `viz.runningwithdata.com/musiclog`) | 573-line ES-module `export class App` vs. this skeleton's 178-line classic script. Shares only `VER_PREFIX`, the fingerprint. |
-| `quartet-log/src/pullToRefresh.js` | Independent implementation of the same idea, with its own prose and code — and it's the **ancestor**: this skeleton's version was written from it. |
+| `quartet-log/src/pullToRefresh.js` | Independent implementation, own prose and code — and it's the **ancestor**: this skeleton's version was written from it. |
 
 quartet-log is the sharpest case of the two-way flow above: it originated the cache-first paint
-(`3322370`) and the empty-payload guard (`fd71bde`) that became `ddd9ab8` here, and it already has
-both. Reporting it "behind" that commit would be backwards. Its shared ideas are **reimplemented, not
-vendored**, so the stamp mechanism can't track it — review it by hand.
+(`3322370`) and the empty-payload guard (`fd71bde`) that became `ddd9ab8` here, and already has both.
+Reporting it "behind" that commit is backwards. Review it by hand.
+
+**Partial adopters** — vendored a *region*, not the file:
+
+| Flagged | What it actually took |
+|---|---|
+| `haydn-info-card/web/app.js`, `quartets.boccherini.org/app.js` | 59 lines: `VER_PREFIX` + `checkVer` + `forceUpdate` only. No `render`/`paint`/`showStale`/data layer. |
+| `gallery-deck/web/public/app.js` | 479 lines of its own app, with the same version-tag block grafted in. |
+
+A file-level stamp on these is worse than none: it would report them behind every `app.js` commit
+regardless of whether the change touched the ~20 lines they actually took, and `app.js` is the file
+most likely to churn. The version-tag block also has its own natural sync signal — `VER_PREFIX` must
+match `sw.js`'s `V` prefix — so it doesn't need this. **If a region gets big or subtle enough to
+warrant tracking, split it into its own file first**, then stamp that.
 
 **Stamping an app you didn't just sync?** Use `--at <sha>` with the commit it actually matches, not
 `HEAD`. A stamp at HEAD claims it has changes it doesn't, and the checker will report it clean while
