@@ -23,7 +23,8 @@ and flags unstamped-but-recognizable files as candidates so a forgotten repo sur
 
     python3 scripts/check-downstream.py ~/Dropbox/Code       # scan a tree of clones
     python3 scripts/check-downstream.py ../foo ../bar        # or specific repos
-    python3 scripts/check-downstream.py --stamp ../foo/sw.js # adopt a file at our current HEAD
+    python3 scripts/check-downstream.py --stamp ../foo/sw.js             # adopt at our HEAD
+    python3 scripts/check-downstream.py --stamp ../foo/sw.js --at 2ed87e9 # ...or at an older sync point
 
 Exits 1 if anything is behind, so CI can gate on it. Unstamped candidates are informational.
 """
@@ -102,12 +103,20 @@ def walk(roots):
                     yield os.path.join(dirpath, fn)
 
 
-def stamp_file(path):
-    """Write a provenance stamp for `path` at our current HEAD."""
+def stamp_file(path, at=None):
+    """Write a provenance stamp for `path` at `at` (default: our current HEAD).
+
+    Pass --at when the copy is synced from an OLDER commit than HEAD, which is the
+    normal case when adopting an existing app: stamping it at HEAD would claim it
+    has changes it doesn't, and the checker would report it clean while it's behind.
+    """
     fname = os.path.basename(path)
     if fname not in SHARED:
         sys.exit(f"{fname} isn't a file this skeleton owns ({', '.join(sorted(SHARED))})")
-    sha = sh("git", "rev-parse", "--short", "HEAD").stdout.strip()
+    ref = at or "HEAD"
+    if sh("git", "cat-file", "-e", ref + "^{commit}").returncode != 0:
+        sys.exit(f"{ref} isn't a commit in this repo")
+    sha = sh("git", "rev-parse", "--short", ref).stdout.strip()
     with open(path, encoding="utf-8") as f:
         body = f.read()
     if STAMP.search(body[:4000]):
@@ -122,11 +131,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="*", default=[os.path.dirname(ROOT)],
                     help="repos or a directory of clones to scan (default: this repo's parent)")
-    ap.add_argument("--stamp", metavar="FILE", help="adopt FILE at our current HEAD and exit")
+    ap.add_argument("--stamp", metavar="FILE", help="adopt FILE and exit (see --at)")
+    ap.add_argument("--at", metavar="SHA", help="with --stamp: the commit FILE was synced from (default HEAD)")
     args = ap.parse_args()
 
     if args.stamp:
-        return stamp_file(args.stamp)
+        return stamp_file(args.stamp, args.at)
 
     notes = read_propagate()
     behind, candidates, ok, broken = [], [], 0, []

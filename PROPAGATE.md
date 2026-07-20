@@ -22,6 +22,20 @@ To see who needs what:
 python3 scripts/check-downstream.py ~/Dropbox/Code
 ```
 
+**Flow is two-way, and the stamp only tracks one direction.** Several of these apps predate the
+skeleton — they're where its content came from — and were *later* updated to adopt improvements from
+it, which makes them semantically downstream now. That relationship keeps changing: any app can turn
+out to have solved something worth pulling back into the common core (that's how most of this file's
+patterns got here). The stamp records "synced *from* pwa-starter at sha X" and says nothing about
+work flowing the other way. So when an app grows something general, **port it here first and let the
+stamp catch up** — don't leave it downstream and rely on remembering, which is the exact failure this
+whole mechanism exists to prevent. `musiclog` is the standing example in both directions.
+
+**Stamping an app you didn't just sync?** Use `--at <sha>` with the commit it actually matches, not
+`HEAD`. A stamp at HEAD claims it has changes it doesn't, and the checker will report it clean while
+it's silently behind. When the true fork point is unknown, stamping at a known-good audit baseline is
+honest as long as you only trust the log *forward* from there.
+
 ---
 
 ## sw.js
