@@ -66,16 +66,48 @@ def head(path, n=HEAD_LINES):
 
 
 def read_propagate():
-    """PROPAGATE.md → {sha: note}. Entries look like `- bd16c21  note text`."""
-    notes = {}
-    path = os.path.join(ROOT, "PROPAGATE.md")
+    """PROPAGATE.md → {(file, sha): note}.
+
+    Keyed by FILE AND sha, not sha alone: one commit routinely touches several files with
+    different downstream consequences. ddd9ab8, for instance, rewrote data.js but touched
+    sw.js only to bump V — filing its data.js note against sw.js too would tell you to go
+    patch a service worker over a change that never touched its logic.
+
+    Entries are `- <sha>  note`, under a `## <filename>` heading, and continuation lines
+    (indented under the bullet) are folded into the note.
+    """
+    notes, path = {}, os.path.join(ROOT, "PROPAGATE.md")
     if not os.path.exists(path):
         return notes
+    fname, key = None, None
     for line in open(path, encoding="utf-8"):
+        h = re.match(r"##\s+(\S+)", line)
+        if h:
+            fname, key = h.group(1), None
+            continue
         m = re.match(r"\s*[-*]\s+([0-9a-f]{7,40})\s+(.*)", line)
-        if m:
-            notes[m.group(1)] = m.group(2).strip()
+        if m and fname:
+            key = (fname, m.group(1))
+            notes[key] = m.group(2).strip()
+        elif key and line.startswith(("  ", "\t")) and line.strip():
+            notes[key] += " " + line.strip()       # fold the wrapped remainder in
+        elif not line.strip():
+            key = None
     return notes
+
+
+def wrap(text, width=88, indent=" " * 14):
+    """Wrap a note so a multi-line entry stays readable in the terminal."""
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        lines.append(cur)
+    return ("\n" + indent).join(lines)
 
 
 def commits_since(sha, fname):
@@ -156,22 +188,24 @@ def main():
         if err:
             broken.append((path, err))
         elif commits:
-            behind.append((path, sha, commits))
+            behind.append((path, sha, commits, stamped_name))
         else:
             ok += 1
 
     rel = lambda p: os.path.relpath(p, os.path.dirname(ROOT))
 
-    for path, sha, commits in behind:
+    for path, sha, commits, stamped_name in behind:
         print(f"\n{rel(path)}  @ {sha}")
         print(f"  BEHIND {len(commits)}:")
+        actionable = 0
         for short, subject in commits:
-            note = notes.get(short)
+            note = notes.get((stamped_name, short))
             print(f"    {short}  {subject}")
             if note:
-                print(f"              → {note}")
-        if not any(notes.get(s) for s, _ in commits):
-            print("              (no PROPAGATE.md entry — may be cosmetic)")
+                actionable += 1
+                print(f"              → {wrap(note)}")
+        if not actionable:
+            print(f"              (nothing listed for {stamped_name} in PROPAGATE.md — likely cosmetic)")
 
     for path, err in broken:
         print(f"\n{rel(path)}\n  STAMP UNUSABLE: {err}")
