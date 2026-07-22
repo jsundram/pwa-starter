@@ -27,8 +27,12 @@ into *their* app. Do this in order:
    - App name + one-word short_name (home-screen label)
    - One-line tagline and one-sentence description
    - The eventual URL (`https://<user>.github.io/<repo>/` for Pages) — needed for absolute OG tags
-   - Do they want **usage analytics**? (If no, delete `usage/`, `ping.js`, `scripts/analytics.gs`,
-     and the `ping.js`/`usage/` lines from `sw.js` + the `<script src="./ping.js">` in `index.html`.)
+   - Do they want **usage analytics**? Two tools, picked by audience (§Analytics): **GoatCounter**
+     for anonymous public stats — the fleet default — or the **sheet-ping** (`ping.js` + `usage/`)
+     when the audience is a known roster (AKM) or the tool is private. If GoatCounter or none:
+     delete `usage/`, `ping.js`, `scripts/analytics.gs`, and the `ping.js`/`usage/` lines from
+     `sw.js` + the `<script src="./ping.js">` in `index.html`; for GoatCounter add its script tag
+     (last, `async`).
 2. **Replace the placeholders** (they're deliberately grep-able). Search the whole tree:
 
    | Placeholder | Becomes | Where |
@@ -176,9 +180,13 @@ live regions, WCAG AAA) unless you know a user needs it.
 - [ ] `@media print` resets dark backgrounds to white/black (ink) and hides interactive chrome
 - [ ] Remember links aren't clickable on paper — don't rely on them; show the URL/QR if it matters
 
-**Analytics** (optional) — `ping.js`, `scripts/analytics.gs`, `usage/`
-- [ ] Google-Sheet ping pattern wired, loaded last, offline-queued, no PII in the log
-- [ ] `usage/` dashboard's `PINGS_CSV` points at the published pings tab
+**Analytics** (optional) — `ping.js`, `scripts/analytics.gs`, `usage/`, or a GoatCounter tag
+- [ ] The right tool for the audience: anonymous/public → GoatCounter; known roster or
+  private/CSP-strict → the sheet-ping (§Analytics has the fork)
+- [ ] Sheet path: ping pattern wired, loaded last, offline-queued, no PII in the log; `usage/`
+  dashboard's `PINGS_CSV` points at the published pings tab
+- [ ] GoatCounter path: script tag `async` and loaded last; the app must never *depend* on it —
+  it's exempt from the no-uncached-CDN rule precisely because it fails silently offline
 
 **Deploy**
 - [ ] Relative paths throughout (works at `user.github.io/repo/`, not just a root domain)
@@ -522,7 +530,31 @@ Wire any read through the same stale-while-revalidate + committed-snapshot fallb
 data (§Offline) and surface the live/cached/offline state in the UI; `DATA_URL` in `data.js` is where
 the read URL lands (empty = disabled, like `ping.js`'s `URL_`).
 
-### Analytics — an application of the sheet backend — `ping.js`, `scripts/analytics.gs`, `usage/`
+### Analytics — GoatCounter for public stats, the sheet backend for known audiences — `ping.js`, `scripts/analytics.gs`, `usage/`
+**Two tools, picked by audience — and for most of these apps the audience is anonymous and public.**
+The question that actually directs dev cycles is fleet-level — *which apps are alive, how much, on
+what platforms* — so the default is **GoatCounter**: free, cookieless, one `async` script tag, and
+volume/referrer/platform breakdowns with zero backend (haydn web's setup). It's exempt from the
+no-uncached-CDN rule because the app never depends on it — it fails silently offline. One account
+holds a site code per app, or share one code across apps with host-prefixed paths
+(`goatcounter.count({path: location.host + location.pathname})`), so the whole fleet reads at a
+glance. Reach for the **sheet-ping below** instead when the audience is a known roster (AKM: "did
+Alice open it this week?" — the exception, not the rule), the tool is private / behind a strict
+same-origin CSP, or offline opens must be recorded faithfully.
+
+GoatCounter's offline caveats, verified against its published spec + a live CORS preflight (2026-07):
+- The public `/count` pixel takes **no timestamp parameter** (`p/t/r/e/q/s/b/rnd` only). So a
+  localStorage queue/flush (set `no_onload: true`, replay via `goatcounter.count()` on `online`)
+  records offline opens at *flush* time — volume stays roughly honest; timing and session/visit
+  counts skew, since a multi-day burst lands as one session (`hash(UA+IP+salt)` in a window).
+- Faithful backdating exists one tier up: `POST /api/v0/count` accepts `created_at` per hit ("can
+  be in the past, but not in the future"), and the API serves `Access-Control-Allow-Origin: *`
+  with `Authorization` allowed — so it genuinely works from a static page with a count-only-scoped
+  token (blast radius: fake pageviews, which the tokenless pixel already permits anyone).
+- But notice what that queue + flush + authenticated batch-with-timestamps *is*: ping.js's
+  transport rebuilt in order to rent the dashboard. If you're there, the sheet costs the same
+  effort and adds the who — which is the signal you're on the wrong side of the fork.
+
 When the audience is small and known, **a log you own beats a dashboard you rent.** This is the *write*
 side of §Google Sheets as a backend put to one use — recording opens into an Apps Script mailbox
 (anyone can drop a row, only you can read the sheet). What's analytics-specific on top of the transport:
