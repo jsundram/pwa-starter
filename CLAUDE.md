@@ -312,15 +312,26 @@ The one that bites hardest and latest.
      the app "jumping" for no reason.
   3. **Crossfade the swap** with `document.startViewTransition(swap)` where supported, so content
      changes rather than blinking. Gate it on `prefers-reduced-motion: reduce` (a crossfade is
-     non-essential motion), and let unsupported browsers fall through to the plain swap.
+     non-essential motion), and let unsupported browsers fall through to the plain swap. Two caveats
+     at real DOM size (#6, reviewed against musiclog): `startViewTransition` *freezes rendering*
+     while the swap callback runs, so a heavy synchronous paint (a several-thousand-element SVG, a
+     force layout) turns the crossfade into a visible stall; and its async snapshot→swap gap opens a
+     window another repaint (theme flip, resize) can land in — a hazard that doesn't exist when all
+     repaints are synchronous. Fine at skeleton scale; measure before keeping it in a big app.
   4. **Don't update at all while the user is mid-interaction.** A form being typed into, an open menu,
      a drag in flight — replacing content under any of those is worse than showing data a minute old.
      The move is to *hold* the update and surface an unobtrusive "new data — tap to refresh" affordance,
-     exactly like the `#ver` tag does for a new service worker. Deliberately not in the skeleton:
-     "mid-interaction" is app-specific enough that a generic version would be wrong everywhere.
+     exactly like the `#ver` tag does for a new service worker. Deliberately not in the skeleton, but
+     the review (#6) found the *triggers* generalize even though the predicates don't: (a) an **open
+     overlay** — menu, dropdown, tooltip, fullscreen mode, usually detectable as a state class;
+     (b) **focus inside a form control**; (c) a **pointer gesture in flight**. Write those three as
+     your app's `shouldDefer()`; a generic version would still be wrong everywhere.
 
   `app.js`'s `applyUpdate()` implements 1–3; 4 is yours. The floor for an app with real DOM is at least
-  1 and 2 — 3 is polish.
+  1 and 2 — 3 is polish. A **focus restore** was tried and cut (#6): it's dead code in both paint
+  regimes — a wipe-and-rebuild `paint()` destroys the focused node (so `document.contains()` fails),
+  and a patch-in-place one never loses focus. Real focus recovery means re-finding the element by id
+  after the rebuild, which only your `paint()` can do.
 - **Give staleness a visible badge, not just a tooltip.** wtq surfaces `data.js`'s state as a
   three-way colored footer chip — `live` (green) / `cached` (amber) / `offline` (red) — so "am I
   looking at fresh data?" is answerable at a glance. That's the concrete UI for the `{stale, ageMs}`

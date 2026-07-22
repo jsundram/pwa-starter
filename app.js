@@ -54,27 +54,37 @@ async function render(){
 
 // Swap in freshly-revalidated data WITHOUT yanking the page out from under the
 // reader. Cache-first means the user is already looking at content when the
-// network lands, so a naive paint() resets scroll, drops focus, and pops layout.
-// Three cheap defenses, in order of how much they matter:
+// network lands, so a naive paint() resets scroll and pops layout.
+// Reviewed against real downstream DOM (pwa-starter#6: musiclog, haydn scatter);
+// what survived, in order of how much it matters:
 //   1. don't repaint at all unless the payload changed  (res.changed, in render)
-//   2. restore scroll — rebuilding a container resets it to 0
-//   3. crossfade the swap via a View Transition where supported, so content
-//      changes instead of blinking. Skipped under prefers-reduced-motion;
-//      unsupported browsers just take the plain path.
-// The focus restore below is a BONUS, not a guarantee: it only fires if paint()
-// patches in place. A paint() that wipes and rebuilds its container destroys the
-// focused node, so document.contains() fails and focus is simply lost — recovering
-// it there means re-finding the element by id, which only your paint() can do.
+//      — the load-bearing defense, worth more than everything below combined.
+//   2. restore scroll — rebuilding a container resets it to 0. Window-level only,
+//      and that's the right floor: even a list-heavy app usually scrolls the
+//      document, and inner overflow containers built by keyed joins keep their
+//      own offsets. If yours don't, restoring them is paint()'s job.
+//   3. crossfade the swap via a View Transition where supported. Skipped under
+//      prefers-reduced-motion; unsupported browsers take the plain path. Two
+//      caveats at real DOM size: startViewTransition freezes rendering while
+//      swap() runs, so a heavy synchronous paint() (thousands of SVG nodes, a
+//      force layout) turns the crossfade into a visible stall — and its async
+//      snapshot→swap gap is a window another repaint (theme flip, resize) can
+//      land in. Fine at this skeleton's scale; measure before keeping it in a
+//      big app.
+// What was CUT (see #6): restoring focus. Dead code in both paint regimes — a
+// paint() that wipes-and-rebuilds destroys the focused node (document.contains()
+// fails), and one that patches in place never loses focus. Real recovery means
+// re-finding the element by id after the rebuild, which only your paint() can do.
 // What's deliberately NOT here: deferring the update while the user is mid-
-// interaction. That's real (see CLAUDE.md) but "mid-interaction" is app-specific
-// — a form being typed into, a menu open, a drag in flight — so it belongs in
-// your shouldDefer(), not in the skeleton.
+// interaction (defense 4, see CLAUDE.md). The triggers generalize — (a) an open
+// overlay: menu, dropdown, tooltip, fullscreen; (b) focus inside a form control;
+// (c) a pointer gesture in flight — but every predicate is app-specific, so it
+// belongs in your shouldDefer(), not in the skeleton.
 function applyUpdate(data){
-  const y = scrollY, active = document.activeElement;
+  const y = scrollY;
   const swap = () => {
     paint(data);
     if(scrollY !== y) scrollTo(0, y);
-    if(active && active !== document.activeElement && document.contains(active)) active.focus();
   };
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if(document.startViewTransition && !still) document.startViewTransition(swap);
