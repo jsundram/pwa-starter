@@ -37,12 +37,12 @@ into *their* app. Do this in order:
 
    | Placeholder | Becomes | Where |
    |---|---|---|
-   | `APP` | app / short name | index.html, manifest, usage, styles comment |
+   | `APP` | app / short name | index.html, manifest, usage, styles comment, sw.js offline page |
    | `APP — tagline` | real title | index.html `<title>`/OG, manifest `name` |
    | `One sentence on what this is.` | real description | index.html meta/OG |
    | `https://USER.github.io/APP/` | real absolute URL | index.html OG/canonical (must be absolute) |
-   | `#f5f5f5` / `#1a1a1a` / `#2196f3` | real palette | styles.css vars, theme-color metas, manifest colors |
-   | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` (keep in sync!) |
+   | `#f5f5f5` / `#1a1a1a` / `#2196f3` | real palette | styles.css vars, theme-color metas, manifest colors, sw.js `offlineFallback()` (inline by necessity — it renders when styles.css is unreachable) |
+   | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` (keep in sync!) — rename the *stem* only; the **numeric tail is load-bearing** (it orders cache generations for sw.js's collect and checkVer()'s ranking; sw-lint enforces it) |
    | `app-token` | a random token | ping.js + scripts/analytics.gs (must match) |
    | `app-pings` / `app-me` / `app-usage` | localStorage keys (optional rename) | ping.js, usage/index.html |
    | `app-theme` / `app-data:` | localStorage keys (optional rename) | theme.js **and** index.html pre-paint script (keep in sync!); data.js |
@@ -136,9 +136,17 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 
 **Offline / cache-busting** — `sw.js`, `app.js`, `scripts/sw-lint.py`
 - [ ] Service worker registered + precaching the shell (`SHELL` lists every offline-needed file)
-- [ ] **A version constant `V` bumped on every shell change** — the #1 gotcha
-- [ ] `app.js`'s `VER_PREFIX` matches `sw.js`'s `V` prefix (drives the "tap to update" tag)
-- [ ] `sw-lint.py` wired into the pre-commit hook / CI
+- [ ] **A version constant `V` bumped on every shell change** — the #1 gotcha. `V` must keep a
+  **numeric tail** (rename the stem freely) — it orders cache generations
+- [ ] `app.js`'s `VER_PREFIX` matches `sw.js`'s `V` stem (drives the "tap to update" tag)
+- [ ] **Per-file precache, never a bare `cache.addAll`** — one 404 rejects an atomic install and the
+  device gets *no cache at all*; and an evicted-but-registered cache must **self-heal** (top-up on
+  load/foreground), or it stays blank offline forever. See §Offline: per-file brings a *partial*
+  state, and completeness / generations / bootability then have to be handled together
+- [ ] **`respondWith()` never resolves `undefined` or rejects** — a terminal `offlineFallback()`
+  Response at every path, or WebKit/iOS paints a blank white screen with nothing to act on
+- [ ] `sw-lint.py` wired into the pre-commit hook / CI (V bump, numeric tail, SHELL paths exist,
+  no cross-origin entries)
 - [ ] **No uncached third-party dependency** — every `<script src="https://cdn…">`, webfont, and CSS
   the app can't run without is either **precached in `SHELL`** or **vendored locally**. This is the
   one that passes every other check and still opens blank on a plane: the manifest installs fine, the
@@ -147,8 +155,14 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
   posture); haydn and boccherini both self-host d3, wtq loads SheetJS + Google Fonts from CDNs.
 - [ ] **Cache writes gated on `resp.ok`** (with opaque responses exempt) — an HTTP error is a
   *resolved* fetch and will otherwise overwrite good cached files
-- [ ] Data `.json` served stale-while-revalidate, not network-first, so first paint doesn't block on it
-- [ ] Tested offline: load online once, kill the network, reopen — still works
+- [ ] Data `.json` served stale-while-revalidate, not network-first, so first paint doesn't block on
+  it (precached `.json` is not revalidated at all — a `V` bump refreshes it)
+- [ ] Tested offline **three ways**, because "load online once, kill the network, reopen"
+  pre-guarantees a populated, coherent, single-generation cache and so can't catch the family of
+  bugs in #7: (1) that basic case; (2) with an **empty precache** (clear site data, go offline,
+  open — must show the offline page, not a blank screen); (3) **across an update** — bump `V`,
+  reload once, go offline: the new shell serves and the old cache gets collected. Every defect in
+  #7's seven review rounds was invisible on a fresh install and only appeared on the update path
 
 **Mobile** — head + `styles.css`
 - [ ] `viewport` tag present with `viewport-fit=cover` (forgetting it entirely is a classic miss)
@@ -273,20 +287,83 @@ The one that bites hardest and latest.
   logic for a map tile in a canyon or a schedule at a festival. The test isn't "is it code?" but "will
   someone need to *open* this exactly where the network isn't?" — if so it belongs in the precache, not
   lazy runtime caching that only fills after a first online view.
-- **Bump `V` on every shell-file change.** A new `V` evicts the stale cache on `activate`. Forget it
-  and your fix is in the repo but *never on anyone's phone* — iOS caches the SW aggressively. This
-  bit AKM's "v77" rewrite (three commits, no bump, stale UI). `sw-lint.py` catches a staged `SHELL`
-  file with an unchanged `V`.
+- **Bump `V` on every shell-file change.** A new `V` is what refreshes the shell — the install that
+  a new `V` triggers is the only thing that writes precached files. Forget it and your fix is in the
+  repo but *never on anyone's phone* — iOS caches the SW aggressively. This bit AKM's "v77" rewrite
+  (three commits, no bump, stale UI). `sw-lint.py` catches a staged `SHELL` file with an unchanged
+  `V`, and the "tap to update" tag makes a stuck phone fixable by hand.
+- **Precache per-file, never a bare `cache.addAll` — and know what that trade buys you into.**
+  `addAll` is atomic: the cache is *complete* or *absent*. Absent is a live hazard — one 404 (a
+  renamed file, icons not yet generated, a mid-deploy blip) rejects the whole install and the device
+  gets **no cache at all**, i.e. blank offline; and iOS reclaims Cache API contents under storage
+  pressure (~7 idle days) while keeping the cache *name* and registration, after which nothing ever
+  re-populates it, because install only runs on a `V` bump. So `sw.js` precaches per-file
+  (`ensureShell()`: fetch only what's *missing*, dedupe concurrent runs) and `app.js` pings
+  `ensure-shell` on load, foreground, and `controllerchange` — one online launch repairs an evicted
+  cache. **But per-file puts introduce a third state, *partial*, and three questions `addAll`
+  answered implicitly become live:** (1) is this cache *complete* — and by what measure, presence or
+  same-deploy coherence? (2) which *generation* answers a read when two caches coexist? (3) is a
+  complete-looking cache actually *bootable*? Every bug in #7's seven downstream review rounds was
+  one of these answered wrongly — an adopter who internalizes the intersection will catch the next
+  one; an adopter who ports the patches one at a time will reintroduce them. The consequences, as
+  implemented:
+  - **Scope reads to the current version** (`cacheLookup()`: `caches.open(V).match()` first, whole
+    store second). `CacheStorage.match()` iterates caches in *creation order*, so a lingering old
+    generation otherwise answers first and serves the **previous release** offline indefinitely.
+    The old cache still fills gaps — it's the net that makes a failed `V` bump survivable — but it
+    can no longer outrank a complete current shell. If a downstream copy ports only one thing, port
+    this: it closes the class by construction, not by timing.
+  - **Repair before collect, and collect *directionally*.** `addAll`'s atomicity was also a guard: a
+    failed install meant the old worker kept serving its complete cache. Per-file installs always
+    resolve, so `activate` must top up first and only collect the old cache once this version's
+    shell is complete — and the collect must delete only caches with a **lower numeric tail**, never
+    "everything that isn't me": `skipWaiting()` means an incoming worker is `active` with
+    `installing`/`waiting` both null, so an outgoing worker's collect would otherwise delete the new
+    precache mid-fill. It must also be **re-runnable** (`activate` fires once per version — the
+    `ensure-shell` message handler retries it), and a *permanently* unfetchable entry (a 404'd
+    path — a SHELL-list bug no retry fixes) must not hold it hostage, or both generations pile up
+    forever. This is why `V`'s numeric tail is load-bearing.
+  - **`ensureShell()` owns the shell outright** — `cachePut()` refuses to write `SHELL` URLs. `V` is
+    whatever the *current* worker declares, so opportunistic runtime writes let a redeploy (no `V`
+    bump) overwrite shell files **one at a time**: the cache reports itself complete while holding a
+    document from one deploy and scripts from another. The skeleton's shell is two coupled sets
+    (index.html + styles.css + app.js + theme.js + data.js; usage/ + crunch.js), exactly the shape
+    that skews into confusing bugs. Corollary: precached `.json` is *not* revalidated (the fetch
+    would be discarded — pure cellular waste); a `V` bump refreshes it.
+  - **Never let `respondWith()` resolve `undefined` or reject.** Both lookups missing resolved the
+    old `.catch()` to `undefined` → WebKit fails the navigation ("Returned response is null") and
+    iOS paints a **blank white screen**, no text, nothing to act on — the bug that started #7.
+    Chromium survives it, which is why desktop testing never sees it. `offlineFallback()` is the
+    terminal answer at every path: a readable inline page for navigations ("open it once with a
+    connection…"), a bare 504 for subresources. Gate the `./index.html` fallback on
+    `mode === "navigate"` (the `live` branch also matches `.js` — handing HTML to a script request
+    makes it fail to *parse* instead of failing cleanly) **and on the root document** (answering an
+    uncached `/usage/` navigation with the root page is the wrong document; the honest offline page
+    beats one the user didn't ask for). Decide navigations *before* the `.json` branch.
+  - **Don't serve a document you can't boot** (`BOOT_DEPS`/`bootable()`). Per-file means "document
+    cached, boot-critical script missing" is reachable: the page half-renders with no error and no
+    hint. List per document only what it *dies* without — gating on a nice-to-have replaces a
+    working offline page with an error page. The skeleton's root as shipped needs nothing (static
+    placeholder); the moment `paint()` owns your content, theme.js/data.js/app.js and any vendored
+    chart lib belong in its list. usage/ needs crunch.js.
+  - The `offlineFallback()` page **deliberately breaks two repo rules**: its CSS is inline (it
+    renders precisely when styles.css is unreachable) and it hardcodes the placeholder palette +
+    `system-ui` (a fallback that depends on a cached font defeats itself). Both are flagged in the
+    replacement table — rebrand it with the rest.
 - **Gate the SW's cache writes on `resp.ok` — a `fetch()` only rejects on a *network* failure.** A 404
   or a mid-deploy 502 arrives as a **resolved** response, so the naive
   `fetch(req).then(resp => { c.put(req, resp.clone()); return resp; })` writes the error body over a
   good cached copy, the `.catch()` never fires, and the poison survives as the offline fallback until
-  the next `V` bump. It's the shell-cache twin of "never cache an empty 200" below. Two subtleties:
+  the next `V` bump. It's the shell-cache twin of "never cache an empty 200" below. Subtleties:
   serve the **cached copy on a non-ok response** too (don't hand the app an error page when you have
-  something good), and **exempt opaque responses** — a cross-origin `no-cors` fetch (webfont, CDN
+  something good); **exempt opaque responses** — a cross-origin `no-cors` fetch (webfont, CDN
   script) always reports `ok:false`/`status:0`, so a bare `resp.ok` gate silently stops caching your
-  fonts and breaks offline type. `sw.js`'s `cachePut()` is the worked version. Every app that copied
-  this file before the fix has the bug at two call sites.
+  fonts and breaks offline type; skip **redirected** responses (they can't satisfy a navigation) and
+  **206** (`resp.ok` is *true* for a partial, then `put()` throws — matters the moment an app caches
+  audio/video); `.catch()` the `put()` itself (non-GET, 206, quota all land there) and guard the
+  whole fetch handler with `method !== "GET"` — a form POST is `mode === "navigate"`. `sw.js`'s
+  `cachePut()` is the worked version. Every app that copied this file before the fix has the bug at
+  two call sites.
 - **`app.js` makes staleness visible + fixable in one tap:** it reads the installed cache name from
   `caches.keys()`, fetches the deployed `sw.js` (`?_=`+`no-store` to dodge both caches), and shows a
   tappable "installed → latest" tag when the server is ahead; tapping deletes all caches + reloads.
@@ -686,6 +763,22 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Relative or SVG `og:image`** → no preview in iMessage/WhatsApp. Absolute + raster.
 - **OG image too big** → some scrapers skip it (grey box). `make-og.sh` fails + `og-lint.py` guards the commit; keep it under ~250 KB.
 - **Forgot to bump `V`** → fix ships to the repo, never to phones. `sw-lint.py` guards it.
+- **`respondWith()` resolved `undefined` (or rejected)** → WebKit fails the navigation ("Returned
+  response is null") and iOS shows a **blank white screen** — no text, nothing to act on. Chromium
+  survives it, so desktop testing never sees it. Terminal `offlineFallback()` at every path. (#7)
+- **Bare `cache.addAll` precache** → one 404 rejects the whole install (no cache at all), and an
+  iOS-evicted cache (name kept, contents dropped) never re-fills, since install only runs on a `V`
+  bump — working online, blank offline, *permanently*. Per-file `ensureShell()` + top-up pings. (#7)
+- **Old cache generation shadows the new** → `CacheStorage.match()` iterates in *creation* order,
+  so a lingering old cache serves the previous release offline and wedges the version tag. Scope
+  reads to the current `V` first (`cacheLookup()`), and collect old generations *directionally* —
+  only lower numeric tails, only once the current shell is complete. (#7)
+- **Runtime writes into the shell** → a redeploy with no `V` bump overwrites shell files one at a
+  time; the cache stays "complete" while mixing two deploys (a document from one driving scripts
+  from another). `cachePut()` skips `SHELL` URLs — the install owns them. (#7)
+- **Unanchored version regex in `checkVer()`** → a first-match-anywhere scan for `app-v\d+` matches
+  a *comment* and pins a permanent "tap to update" tag that does nothing when tapped. Parse the
+  declaration: `const V\s*=\s*"…"` — same expression as `sw-lint.py`. (#7)
 - **SW caches its own version probe** → `checkVer()` fetches `./sw.js?_=<ts>` on every resume; if the
   fetch handler caches it, each resume writes a dead unique-key entry (unbounded growth between
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never

@@ -8,7 +8,7 @@
 // JS-baked-color contract), stale-while-revalidate data, and the keep-fresh loop
 // (foreground poll + resume re-pull + optional pull-to-refresh).
 
-const VER_PREFIX = "app-v";        // must match the V prefix in sw.js
+const VER_PREFIX = "app-v";        // must match sw.js's V stem — and V's numeric tail is load-bearing
 const DATA_URL = "";               // <-- your cross-origin data endpoint (empty = disabled, like ping.js)
 const DATA_KEY = "main";           // localStorage cache slot for this endpoint
 const STALE_MS = 5 * 60 * 1000;    // cached data older than this is worth re-fetching
@@ -143,14 +143,42 @@ function updateThemeLabel(){
 async function checkVer(){
   const tag = document.getElementById("ver");
   if(!tag) return;
+  // HIGHEST version, not the first key: two caches can legitimately coexist for a while (sw.js
+  // keeps the old one as a net until the new precache is complete), and caches.keys() is in
+  // creation order — so find() would report the OLD version as installed and show a permanent
+  // "tap to update" tag on an already-current device.
+  //
+  // But only among caches that actually HOLD something. sw.js's ensureShellOnce() calls
+  // caches.open(V) before it fetches anything, so a bumped version exists as an EMPTY cache the
+  // moment an install starts — and per-file precaching means that worker activates even if every
+  // shell fetch failed. Ranking on names alone then reads the empty placeholder as "installed",
+  // concludes the device is current, and hides the tag on a device still serving the PREVIOUS
+  // release out of the old cache — killing the one affordance that unsticks it by hand. A
+  // partly-filled new cache still reads as installed; that state repairs itself on the next
+  // top-up, whereas the empty one can persist.
   let installed = "";
-  try{ installed = (await caches.keys()).find(k => k.startsWith(VER_PREFIX)) || ""; }catch{}
+  try{
+    const keys = (await caches.keys()).filter(k => k.startsWith(VER_PREFIX));
+    const sized = await Promise.all(
+      keys.map(async k => [(await (await caches.open(k)).keys()).length, k]));
+    installed = sized
+      .filter(([n]) => n > 0)
+      .map(([, k]) => [parseInt(k.slice(VER_PREFIX.length), 10) || 0, k])
+      .sort((a, b) => a[0] - b[0])
+      .map(([, k]) => k)
+      .pop() || "";
+  }catch{}
   if(!installed){ tag.hidden = true; return; }
 
   let latest = "";
   try{   // ?_= + no-store dodges both the SW cache and the HTTP cache → the live sw.js on the server
     const src = await (await fetch("./sw.js?_=" + Date.now(), {cache:"no-store"})).text();
-    latest = (src.match(new RegExp(VER_PREFIX + "\\d+")) || [""])[0];
+    // Read the DECLARATION, not the first prefix-shaped string anywhere in the file: sw.js's
+    // comments cite version names as examples, so an unanchored /app-v\d+/ scan can match a
+    // comment and pin a permanent "tap to update" tag that does nothing when tapped
+    // (forceUpdate() clears caches, reloads, and re-reads the same comment). Same expression as
+    // scripts/sw-lint.py's ver(); keep the two in agreement.
+    latest = (src.match(/const V\s*=\s*"([^"]*)"/) || ["", ""])[1];
   }catch{}   // offline: leave latest empty → neutral tag, never a false "behind"
 
   const behind = latest && latest !== installed;
@@ -166,9 +194,29 @@ async function forceUpdate(){   // the hammer: drop every cache, reload → SW r
   location.reload();
 }
 
+// Ask the active SW to top up any missing precache entries. iOS can reclaim Cache API contents
+// (storage pressure, ~7 idle days) while leaving the registration in place, and sw.js only
+// precaches on install — i.e. on a V bump. Without this nudge a device whose cache got evicted
+// stays broken offline indefinitely; with it, one online launch repairs it.
+function requestShellTopUp(){
+  if(!("serviceWorker" in navigator) || !navigator.onLine) return;
+  // getRegistration() resolves undefined when there's nothing registered; .ready would just
+  // never settle, leaving a pending promise behind on every foreground.
+  navigator.serviceWorker.getRegistration()
+    .then(reg => { if(reg && reg.active) reg.active.postMessage("ensure-shell"); })
+    .catch(() => {});
+}
+
 // ---- boot ------------------------------------------------------------------
 function boot(){
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+    // A registration can exist with no ACTIVE worker for a moment — first install, or the swap
+    // during an update — and the top-up ping is fire-and-forget, so it would simply be dropped
+    // and nothing would retry until the next launch. That undercuts the whole "open it once with
+    // a connection and it repairs itself" promise, so retry when a worker takes control.
+    navigator.serviceWorker.addEventListener("controllerchange", requestShellTopUp);
+  }
 
   Theme.init();                       // re-apply pre-paint attr + watch the OS for auto-mode users
   Theme.subscribe(onThemeChange);
@@ -176,13 +224,14 @@ function boot(){
 
   render();
   checkVer();
+  requestShellTopUp();
 
   if(window.PullToRefresh) new PullToRefresh({ onRefresh: render }).init();  // standalone-only, no-op elsewhere
   setInterval(maybeRefresh, STALE_MS);                                       // foreground poll
 
-  // iOS home-screen apps RESUME rather than reload — re-pull (gated) + re-check
-  // version on foreground.
-  addEventListener("visibilitychange", () => { if(!document.hidden){ maybeRefresh(); checkVer(); } });
+  // iOS home-screen apps RESUME rather than reload — re-pull (gated), re-check version, and
+  // re-ping the shell top-up on foreground.
+  addEventListener("visibilitychange", () => { if(!document.hidden){ maybeRefresh(); checkVer(); requestShellTopUp(); } });
 }
 
 boot();
