@@ -123,7 +123,9 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] Twitter: `twitter:card=summary_large_image` + `title/description/image`
 - [ ] **`og:image` is an ABSOLUTE https URL to a RASTER (PNG/JPG), 1200×630, compressed** — not relative, not SVG
 - [ ] Card is **under the scraper size budget** — `make-og.sh` compresses + hard-fails over ~250 KB, and `og-lint.py` guards the commit (same pre-commit as `sw-lint.py`); a too-big card previews as a grey box
-- [ ] The share image exists and renders (open it; paste the page URL into a chat to test the scrape)
+- [ ] The share image exists and renders — a previewer ([opengraph.xyz](https://www.opengraph.xyz/),
+  opengraph.dev) for a fast multi-platform read of the tags, then **paste the URL into a real chat**,
+  which is the only ground truth
 
 **Icons / install** — `manifest.json`, `assets/`, `scripts/make-icons.sh`
 - [ ] `icon.svg` source → 180/192/512 PNGs (generated, not hand-edited)
@@ -255,6 +257,13 @@ big to scrape previews as a grey box, and you don't find out until someone texts
 SVG **data-URI** used for `apple-touch-icon` *and* a **runtime-generated manifest** (a tiny script
 builds it as a Blob URL) — zero icon files. This skeleton uses real files since multi-page apps cache
 them anyway.
+
+A third-party previewer is a good first pass but not an audit: it renders its *own* simulation from
+your tags rather than running Apple's or Meta's scraper (iMessage and WhatsApp, the two that matter
+most here, have no official debugger at all), it happily previews a card too big for a scraper to
+fetch — that's `og-lint.py`'s job, not its — and it can't clear a *cached* bad preview, which still
+needs Facebook's Sharing Debugger or LinkedIn's Post Inspector (X's validator died in 2022). It also
+needs a public URL, so it's a post-deploy check and no help to a tailnet/private app.
 
 ### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
