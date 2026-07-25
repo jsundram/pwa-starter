@@ -69,6 +69,36 @@ honest as long as you only trust the log *forward* from there.
 
 ## sw.js
 
+- dd763ca  The #7 offline family: per-file precache (`ensureShell()`), version-scoped reads
+  (`cacheLookup()`), repair-then-directional-collect (`topUpThenCollect()`), terminal
+  `offlineFallback()`, `cachePut()` skipping SHELL/redirects/206 with a caught `put()`, the
+  non-GET guard, navigations-before-`.json`, and per-document `BOOT_DEPS`. Fixes a blank white
+  screen offline (WebKit/iOS) whenever the precache is empty or partial, plus stale-generation
+  shadowing and mixed-deploy shells. **Porting constraints, in force:**
+  - Per-file puts **must land together with** repair-before-collect + the directional collect —
+    per-file alone removes the guard `addAll`'s atomicity provided, and "keep the old cache as a
+    net" alone ships a stale-shadowing bug (`CacheStorage.match()` is creation-order). The collect
+    must be **re-runnable** (message handler, not just `activate`) and compare **numeric
+    generations**, not `installing || waiting` (that guard alone is insufficient — skipWaiting).
+  - If a copy ports only one thing, port `cacheLookup()` — it closes the shadowing class by
+    construction and makes the rest less delicate.
+  - New contract: **`V` must end in digits** (the tail orders generations for the collect and the
+    version tag), and app.js's `VER_PREFIX` must equal the `V` stem. The version regex
+    `const V\s*=\s*"([^"]*)"` is now shared by app.js and the lint — keep all three in agreement.
+  - The **app.js companion is required, not optional** (the vendored version-tag region):
+    `requestShellTopUp()` on load/foreground/`controllerchange`, `checkVer()` ranking by numeric
+    tail among *non-empty* caches, anchored version parse. Without the ranking fix the tag lies
+    the moment two generations coexist — which the SW change makes a normal state.
+  - `offlineFallback()` needs a per-app constant block (title, copy, palette); `BOOT_DEPS` is
+    per-app judgment — list only what each document *dies* without.
+  Known affected: `haydn-info-card/web/sw.js`, `gallery-deck/web/public/sw.js` (both still carry
+  the byte-identical `addAll` install + bare `.catch(...)` fallback chain).
+  `quartets.boccherini.org` is the *upstream* for this change (fixed in its #24, deployed as
+  boccherini-v9) — don't re-port it; just re-stamp its provenance line at dd763ca. Downstream
+  copies of `scripts/sw-lint.py` (boccherini's `tools/sw_lint.py`) should also pick up the
+  comment-safe SHELL parser + the three new checks (paths exist, no cross-origin, numeric tail).
+  (pwa-starter#7)
+
 - 2ed87e9  Gate every cache write on `resp.ok` via `cachePut()` — a 404/502 is a *resolved* fetch,
   so the old ungated `c.put()` overwrote a good cached file with an error body that then survived
   as the offline fallback until the next `V` bump. Patch **both** call sites (network-first and
