@@ -17,6 +17,9 @@ sw.js precaches the app SHELL. Four mistakes are cheap to catch here and expensi
 4. A V without a numeric tail. The tail orders generations for sw.js's collect and app.js's
    checkVer() ranking; a non-numeric V makes collection silently stop, no error, no symptom,
    until caches pile up. Rename the stem freely — keep the digits.
+5. app.js's VER_PREFIX not matching V's stem. checkVer() ranks installed caches by that prefix,
+   so a renamed stem on one side only makes the version tag go blank (no cache matches) or read
+   a sibling app's caches — silently, since nothing throws. The stems must agree. (#7)
 
 The pre-commit hook runs it warn-only; run it in CI with a real exit code. By hand:
     python3 scripts/sw-lint.py
@@ -60,6 +63,17 @@ def main():
         problems.append(f'V is "{v}", which has no numeric tail. The tail orders cache '
                         "generations (sw.js's collect, app.js's ranking) — rename the stem "
                         "freely, but keep the digits.")
+
+    # Downstream copies don't always vendor app.js (some graft only the version-tag region, some
+    # skip it), so a missing file or a missing declaration is silence, not a problem.
+    app = sh("git", "show", ":app.js")
+    if v is not None and app.returncode == 0:
+        m = re.search(r'const VER_PREFIX\s*=\s*"([^"]*)"', app.stdout)
+        stem = re.sub(r"\d+$", "", v)
+        if m and m.group(1) != stem:
+            problems.append(f'app.js\'s VER_PREFIX is "{m.group(1)}" but sw.js\'s V stem is '
+                            f'"{stem}" — checkVer() ranks caches by that prefix, so the version '
+                            "tag silently stops tracking this app. Keep the two in agreement.")
 
     top = sh("git", "rev-parse", "--show-toplevel").stdout.strip()
     for entry in entries:
