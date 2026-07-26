@@ -4,7 +4,7 @@
 # ///
 """Commit-time checks for sw.js's precache contract.
 
-sw.js precaches the app SHELL. Four mistakes are cheap to catch here and expensive at runtime:
+sw.js precaches the app SHELL. Five mistakes are cheap to catch here and expensive at runtime:
 
 1. A staged SHELL file with an unchanged V. An edit to a precached file only reaches installed
    clients when V changes — forget the bump and the fix ships to the repo but never to anyone's
