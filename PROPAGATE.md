@@ -65,6 +65,21 @@ warrant tracking, split it into its own file first**, then stamp that.
 it's silently behind. When the true fork point is unknown, stamping at a known-good audit baseline is
 honest as long as you only trust the log *forward* from there.
 
+**A copy can be pinned out of tracking.** When a deployment makes a whole class of fixes moot,
+append `pinned: <reason>` to the file's stamp line —
+
+```js
+// pwa-starter: sw.js @ 2ed87e9 pinned: tailnet-only, no real offline mode
+```
+
+— and the checker reports it separately (still showing how far it has drifted, so the decision
+stays visible) instead of as an undone task, and never fails CI on it. The reason is mandatory
+context for future-you; delete the clause to resume tracking. Pin the *file*, not the repo: a
+pinned `sw.js` doesn't exempt a `data.js` sitting next to it. gallery-deck's `sw.js` is the
+standing example — its content is served live by its backend and deliberately never cached
+(`/api/media/*`), so it has no real offline mode and the offline-robustness family doesn't apply;
+it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
+
 ---
 
 ## sw.js
@@ -91,9 +106,10 @@ honest as long as you only trust the log *forward* from there.
     the moment two generations coexist — which the SW change makes a normal state.
   - `offlineFallback()` needs a per-app constant block (title, copy, palette); `BOOT_DEPS` is
     per-app judgment — list only what each document *dies* without.
-  Known affected: `gallery-deck/web/public/sw.js` (still carries the byte-identical `addAll`
-  install + bare `.catch(...)` fallback chain). `haydn-info-card` ported + verified (its
-  `0075239`, stamped @ dd763ca).
+  Known affected: `haydn-info-card` ported + verified (its `0075239`, stamped @ dd763ca).
+  `gallery-deck/web/public/sw.js` still carries the `addAll` install + bare `.catch(...)` chain
+  but is **pinned** (tailnet-only; content is backend-served and never cached, so it has no real
+  offline mode) — unpin and port if that ever changes.
   `quartets.boccherini.org` is the *upstream* for this change (fixed in its #24, deployed as
   boccherini-v9) — don't re-port it; just re-stamp its provenance line at dd763ca. Downstream
   copies of `scripts/sw-lint.py` (boccherini's `tools/sw_lint.py`) should also pick up the

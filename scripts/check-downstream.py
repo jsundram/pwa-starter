@@ -21,6 +21,15 @@ Discovery is deliberately NOT a hand-maintained list of repos: a list rots silen
 time you forget to add one. Point this at a directory of clones and it finds copies by stamp,
 and flags unstamped-but-recognizable files as candidates so a forgotten repo surfaces itself.
 
+A copy whose deployment makes a class of fixes moot can be PINNED — append a reason to its stamp:
+
+    // pwa-starter: sw.js @ 2ed87e9 pinned: tailnet-only, no real offline mode
+
+Pinned copies are reported separately (with how far they've drifted, so the decision stays
+visible) and never read as an undone task or fail the scan. The reason is mandatory context for
+future-you; delete the clause to resume tracking. Pin the FILE, not the repo — a pinned sw.js
+doesn't exempt a data.js copy next to it.
+
     python3 scripts/check-downstream.py ~/Dropbox/Code       # scan a tree of clones
     python3 scripts/check-downstream.py ../foo ../bar        # or specific repos
     python3 scripts/check-downstream.py --stamp ../foo/sw.js             # adopt at our HEAD
@@ -48,7 +57,7 @@ SHARED = {
     "pullToRefresh.js": "PullToRefresh",
 }
 
-STAMP = re.compile(r"pwa-starter:\s*(\S+?)\s*@\s*([0-9a-f]{7,40})")
+STAMP = re.compile(r"pwa-starter:\s*(\S+?)\s*@\s*([0-9a-f]{7,40})(?:\s+pinned:\s*(\S[^\n]*))?")
 SKIP = {".git", "node_modules", "vendor", "dist", "build", ".venv", "__pycache__"}
 HEAD_LINES = 40          # a stamp belongs near the top; don't scan whole files
 
@@ -171,7 +180,7 @@ def main():
         return stamp_file(args.stamp, args.at)
 
     notes = read_propagate()
-    behind, candidates, ok, broken = [], [], 0, []
+    behind, candidates, ok, broken, pinned = [], [], 0, [], []
 
     for path in walk(args.paths or [os.path.dirname(ROOT)]):
         fname = os.path.basename(path)
@@ -183,10 +192,12 @@ def main():
             if SHARED[fname] in open(path, encoding="utf-8", errors="replace").read():
                 candidates.append(path)
             continue
-        stamped_name, sha = m.group(1), m.group(2)
+        stamped_name, sha, pin = m.group(1), m.group(2), m.group(3)
         commits, err = commits_since(sha, stamped_name)
         if err:
-            broken.append((path, err))
+            broken.append((path, err))               # a pinned stamp still needs a real sha
+        elif pin is not None:
+            pinned.append((path, sha, len(commits), pin.strip()))
         elif commits:
             behind.append((path, sha, commits, stamped_name))
         else:
@@ -210,13 +221,19 @@ def main():
     for path, err in broken:
         print(f"\n{rel(path)}\n  STAMP UNUSABLE: {err}")
 
+    if pinned:
+        print("\nPinned (deliberately not tracked — delete the 'pinned:' clause in the stamp to resume):")
+        for path, sha, n, reason in pinned:
+            print(f"  {rel(path)}  @ {sha}  ({n} behind)  — {reason}")
+
     if candidates:
         print("\nUnstamped copies (recognizably ours, not yet tracked):")
         for path in candidates:
             print(f"  {rel(path)}")
         print("  → adopt with: python3 scripts/check-downstream.py --stamp <file>")
 
-    print(f"\n{ok} up to date, {len(behind)} behind, {len(candidates)} untracked, {len(broken)} unusable")
+    print(f"\n{ok} up to date, {len(behind)} behind, {len(pinned)} pinned, "
+          f"{len(candidates)} untracked, {len(broken)} unusable")
     return 1 if behind or broken else 0
 
 
