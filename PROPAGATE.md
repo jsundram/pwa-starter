@@ -91,8 +91,9 @@ honest as long as you only trust the log *forward* from there.
     the moment two generations coexist — which the SW change makes a normal state.
   - `offlineFallback()` needs a per-app constant block (title, copy, palette); `BOOT_DEPS` is
     per-app judgment — list only what each document *dies* without.
-  Known affected: `haydn-info-card/web/sw.js`, `gallery-deck/web/public/sw.js` (both still carry
-  the byte-identical `addAll` install + bare `.catch(...)` fallback chain).
+  Known affected: `gallery-deck/web/public/sw.js` (still carries the byte-identical `addAll`
+  install + bare `.catch(...)` fallback chain). `haydn-info-card` ported + verified (its
+  `0075239`, stamped @ dd763ca).
   `quartets.boccherini.org` is the *upstream* for this change (fixed in its #24, deployed as
   boccherini-v9) — don't re-port it; just re-stamp its provenance line at dd763ca. Downstream
   copies of `scripts/sw-lint.py` (boccherini's `tools/sw_lint.py`) should also pick up the
