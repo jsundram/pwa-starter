@@ -84,6 +84,40 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ## sw.js
 
+- 77fcb35  Serve the live branch (HTML/JS + navigations) **cache-first with a bounded network fallback** —
+  fixes the "lie-fi" blank screen: `fetch()` only rejects on a genuine failure, so a slow-but-alive
+  link (weak cell signal, half-answering captive portal) hung the old network-first
+  `respondWith()` forever and WebKit painted a blank page, while truly-offline worked. **Port the
+  pieces together, not à la carte:** (1) cache-first serve, gated on `bootable()` for navigations;
+  (2) `withTimeout()` with TWO bounds — warm 3s (cached page in hand) / cold 15s (first run or
+  evicted shell) — never unbounded; (3) a navigation **transient** `!resp.ok` (≥500, 408, 429)
+  **throws** into the catch (a nav 5xx must not serve a cached-but-unbootable document) — but an
+  **opaqueredirect passes through** (nav redirect mode is "manual", so a healthy 301 arrives as
+  status 0 / ok:false and must reach the browser to be followed — GitHub Pages 301s slashless
+  directory urls) and a **permanent 4xx passes through** (the server's real 404 beats an offline
+  page that lies to an online user); this refines haydn#10, whose blanket throw has both bugs —
+  port THIS version, including back into haydn; (4) the catch **re-reads the cache**
+  (`cacheLookup || cached || shell || offlineFallback`) rather than trusting the pre-network
+  snapshot — an `ensure-shell` repair can land inside the timeout window; this regression was
+  introduced and caught once already during the original downstream rewrite; (5) the test harness
+  `scripts/sw.test.mjs` — loads sw.js unmodified under mocked SW globals + a fake clock; keep its
+  `process.exitCode = 1` hang guard or a hung handler drains node's event loop and exits 0,
+  silently green on the exact regression the suite exists to catch. Adopter-visible trade: a
+  deploy shows after the update-tag tap / SW swap, not on the very next reload. Corollary now
+  load-bearing: **every live `.html`/`.js` URL must be in `SHELL`** (+ V bump) — a non-shell one
+  is served cache-first with no revalidation until the old generation is collected.
+  Known affected: `haydn-info-card` is the **upstream** for this change (its #10) — don't
+  re-port the strategy, but DO back-port the opaqueredirect/404 refinement above, then re-stamp
+  its `web/sw.js` at this sha. `quartets.boccherini.org` carries the old network-first live
+  branch verbatim and needs the full port. `AKM/sw.js` (unstamped ancestor-pattern worker) is
+  behind **three** families at once — the ungated `c.put` (2ed87e9), the #7 offline family
+  (undefined-resolving catch, bare `addAll`-era precache), and this one — and its venue use case
+  (weak signal at a concert hall) is the lie-fi scenario verbatim; treat it as a modernization
+  pass, not a patch. `musiclog` has an independent SW with the same unbounded network-first
+  navigations — hand-port per its standing rule, don't stamp. `gallery-deck` stays pinned (no
+  real offline mode; note lie-fi over its tailnet still blanks navigations — a bounded fallback
+  would at least fail visibly if it ever unpins). (pwa-starter#9)
+
 - dd763ca  The #7 offline family: per-file precache (`ensureShell()`), version-scoped reads
   (`cacheLookup()`), repair-then-directional-collect (`topUpThenCollect()`), terminal
   `offlineFallback()`, `cachePut()` skipping SHELL/redirects/206 with a caught `put()`, the
