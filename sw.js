@@ -101,6 +101,11 @@ async function missingFromShell(cache) {
 // file IS on the server and some hop answered a plain GET with a range. Only a definite "this URL
 // is not on the server" — 4xx other than those — is permanent.
 //
+// The status half of that judgment is shared with the live branch's navigation-error split (a
+// transient nav error throws to the fallback; a permanent one serves the server's answer) — one
+// predicate, so the two sites can't drift.
+const isTransientStatus = s => s >= 500 || s === 408 || s === 429;
+//
 // KNOWN LIMITATION: a put() that fails for QUOTA is counted transient, which keeps the old cache
 // and so keeps consuming the quota that just ran out. Harmless at this skeleton's shell size, but
 // CLAUDE.md §Offline tells adopters to precache PDFs and media — exactly where the shell gets big
@@ -118,10 +123,7 @@ async function ensureShellOnce() {
           // entry. Every SHELL entry is same-origin, so there's no opaque case to exempt here —
           // unlike cachePut(), which the Google Fonts branch feeds cross-origin no-cors responses.
           if (resp.redirected || resp.status === 206) return "transient";
-          if (!resp.ok) {
-            return resp.status >= 500 || resp.status === 408 || resp.status === 429
-              ? "transient" : "permanent";
-          }
+          if (!resp.ok) return isTransientStatus(resp.status) ? "transient" : "permanent";
           return c.put(url, resp).then(() => "ok", () => "transient");
         })
         .catch(() => "transient")   // offline: leave it for the next attempt
@@ -473,7 +475,7 @@ self.addEventListener("fetch", e => {
         if (!resp.ok) {
           // A 4xx/5xx is a RESOLVED fetch, not a rejection. For a subresource, a good cached copy
           // beats handing the app an error body. For a NAVIGATION, split by whether a retry could
-          // ever fix it — the same transient/permanent judgment ensureShellOnce() documents:
+          // ever fix it — isTransientStatus(), the same judgment ensureShellOnce() applies:
           //   TRANSIENT (5xx mid-deploy, 408, 429) → throw into the catch. The only cached copy
           //     reachable here already FAILED bootable() (cache-first would have served it
           //     otherwise), so the honest try-again page beats both it and a raw error body.
@@ -481,9 +483,7 @@ self.addEventListener("fetch", e => {
           //     The offline page would LIE to an online user ("open it once with a connection")
           //     behind a Try Again loop that can never win; the real 404 is actionable.
           if (e.request.mode === "navigate") {
-            if (resp.status >= 500 || resp.status === 408 || resp.status === 429) {
-              throw new Error("http " + resp.status);
-            }
+            if (isTransientStatus(resp.status)) throw new Error("http " + resp.status);
             return resp;
           }
           return cacheLookup(e.request).then(r => r || resp);
