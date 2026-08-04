@@ -143,10 +143,22 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
   device gets *no cache at all*; and an evicted-but-registered cache must **self-heal** (top-up on
   load/foreground), or it stays blank offline forever. See §Offline: per-file brings a *partial*
   state, and completeness / generations / bootability then have to be handled together
-- [ ] **`respondWith()` never resolves `undefined` or rejects** — a terminal `offlineFallback()`
-  Response at every path, or WebKit/iOS paints a blank white screen with nothing to act on
+- [ ] **`respondWith()` never resolves `undefined`, rejects, *or hangs*** — a terminal
+  `offlineFallback()` Response at every path, or WebKit/iOS paints a blank white screen with
+  nothing to act on. The hang is the sneaky third case: `fetch()` only *rejects* on real failure,
+  so on "lie-fi" (a slow-but-alive link) an unbounded network wait leaves `respondWith()` pending
+  forever — serve the shell **cache-first** with a `withTimeout()` bound on its network fallback.
+  (The fonts / first-run-JSON / image fallbacks are deliberately unbounded — a hang there stalls a
+  subresource, not the document, matching what the browser does with no SW — but if your app
+  *depends* on one of those cold paths, bound it the same way)
+- [ ] Shell served **cache-first**, network only as the bounded fallback — which makes "every live
+  `.html`/`.js` URL is in `SHELL`" load-bearing: a non-shell one is served stale until a `V` bump
+  collects the old generation, so new pages/scripts go in `SHELL` (+ bump), not runtime caching
 - [ ] `sw-lint.py` wired into the pre-commit hook / CI (V bump, numeric tail, SHELL paths exist,
-  no cross-origin entries)
+  no cross-origin entries), and `scripts/sw.test.mjs` in CI (the behavioral half: cache-first
+  serves, lie-fi bounds, offline fallbacks — runs `sw.js` unmodified under mocked SW globals.
+  Fetch-handler coverage only: the precache/generation half — `ensureShell()`, the directional
+  collect, `cacheLookup()`'s V-scoping — is held by prose + `sw-lint.py`, not by these tests)
 - [ ] **No uncached third-party dependency** — every `<script src="https://cdn…">`, webfont, and CSS
   the app can't run without is either **precached in `SHELL`** or **vendored locally**. This is the
   one that passes every other check and still opens blank on a plane: the manifest installs fine, the
@@ -281,7 +293,19 @@ needs a public URL, so it's a post-deploy check and no help to a tailnet/private
 
 ### Offline & the service worker — **the cache-busting gotcha** — `sw.js`, `app.js`, `data.js`, `sw-lint.py`
 The one that bites hardest and latest.
-- The SW precaches `SHELL` and serves it cache-first (or network-first with cache fallback).
+- The SW precaches `SHELL` and serves it **cache-first** — no network on the critical path, so a
+  load is instant and identical on a fast link, a slow one, or none. The network survives only as
+  a **bounded** fallback (`withTimeout()`: ~3s with a cached page in hand, ~15s cold) for a first
+  run or an evicted shell. The bound is not polish: `fetch()` only *rejects* on a genuine network
+  failure, so on "lie-fi" (weak cell signal, a half-answering captive portal) it hangs instead —
+  the offline `.catch()` never fires, `respondWith()` stays pending, and WebKit paints a blank
+  screen while truly-offline works fine. Network-first also bought nothing here: `cachePut()`
+  refuses SHELL urls, so every live-branch fetch paid latency to *discard* the bytes — freshness
+  rides the V-bump → update-tag path. The one trade: a deploy shows after the update-tag tap / SW
+  swap rather than on the next reload; the tag makes that a single tap. Corollary (now
+  load-bearing): **every live `.html`/`.js` URL must be a `SHELL` file** — a non-shell one is
+  served cache-first with no revalidation until a `V` bump collects the old generation, so a new
+  page or script goes in `SHELL` (+ bump), never opportunistic caching. (#9)
 - **`SHELL` isn't only app code — precache the *documents* users open where there's no signal.** AKM
   lists its concert-program **PDFs** in `SHELL` ("precached so they open offline at the venue"); same
   logic for a map tile in a canyon or a schedule at a festival. The test isn't "is it code?" but "will
@@ -766,6 +790,11 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **`respondWith()` resolved `undefined` (or rejected)** → WebKit fails the navigation ("Returned
   response is null") and iOS shows a **blank white screen** — no text, nothing to act on. Chromium
   survives it, so desktop testing never sees it. Terminal `offlineFallback()` at every path. (#7)
+- **Unbounded network wait in the SW** → on "lie-fi" (slow-but-alive signal) the fetch neither
+  resolves nor rejects, so `respondWith()` stays *pending* — same blank screen as above, but
+  truly-offline works, which is why testing with the network killed never catches it. Shell
+  cache-first + `withTimeout()` (warm/cold bounds) on the fallback fetch; `scripts/sw.test.mjs`
+  holds the contract under a fake clock. (#9)
 - **Bare `cache.addAll` precache** → one 404 rejects the whole install (no cache at all), and an
   iOS-evicted cache (name kept, contents dropped) never re-fills, since install only runs on a `V`
   bump — working online, blank offline, *permanently*. Per-file `ensureShell()` + top-up pings. (#7)
@@ -782,7 +811,7 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **SW caches its own version probe** → `checkVer()` fetches `./sw.js?_=<ts>` on every resume; if the
   fetch handler caches it, each resume writes a dead unique-key entry (unbounded growth between
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
-  lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the network-first branch.
+  lights. Guard: `if (u.pathname.endsWith("/sw.js")) return;` before the live branch.
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
 - **Testing a fix on an installed PWA** → you're fighting the SW cache, not your code. Test the working
   tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
