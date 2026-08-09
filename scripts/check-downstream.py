@@ -57,6 +57,17 @@ SHARED = {
     "pullToRefresh.js": "PullToRefresh",
 }
 
+# Tracked regions living under a DIFFERENT basename downstream. Discovery only: there is
+# no upstream file to run `git log -- <name>` against, so these can never be stamped —
+# the PROPAGATE.md tables explain each copy by hand. quartet-log's app.js split moved its
+# version-tag region into updateChecker.js (the "split it into its own file" move the
+# partial-adopters note prescribes); without this entry the region silently vanishes from
+# the scan the moment a fingerprint leaves a basename we own.
+DISCOVER_ONLY = {
+    "updateChecker.js": "VER_PREFIX",
+}
+FINGERPRINTS = {**SHARED, **DISCOVER_ONLY}
+
 STAMP = re.compile(r"pwa-starter:\s*(\S+?)\s*@\s*([0-9a-f]{7,40})(?:\s+pinned:\s*(\S[^\n]*))?")
 SKIP = {".git", "node_modules", "vendor", "dist", "build", ".venv", "__pycache__"}
 HEAD_LINES = 40          # a stamp belongs near the top; don't scan whole files
@@ -140,7 +151,7 @@ def walk(roots):
                 dirnames[:] = []
                 continue
             for fn in filenames:
-                if fn in SHARED:
+                if fn in FINGERPRINTS:
                     yield os.path.join(dirpath, fn)
 
 
@@ -152,6 +163,8 @@ def stamp_file(path, at=None):
     has changes it doesn't, and the checker would report it clean while it's behind.
     """
     fname = os.path.basename(path)
+    if fname in DISCOVER_ONLY:
+        sys.exit(f"{fname} is discovery-only — no upstream {fname} to log against; see PROPAGATE.md")
     if fname not in SHARED:
         sys.exit(f"{fname} isn't a file this skeleton owns ({', '.join(sorted(SHARED))})")
     ref = at or "HEAD"
@@ -189,8 +202,14 @@ def main():
         if not m:
             # Unstamped: is it recognizably ours? Read the whole file for the fingerprint,
             # since a copy may have moved things around.
-            if SHARED[fname] in open(path, encoding="utf-8", errors="replace").read():
+            if FINGERPRINTS[fname] in open(path, encoding="utf-8", errors="replace").read():
                 candidates.append(path)
+            continue
+        if fname in DISCOVER_ONLY:
+            # A hand-added stamp here would always read clean (`git log -- <name>` over a
+            # file we don't have is empty) — surface it instead of silently passing it.
+            broken.append((path, "discovery-only region — no upstream file to log against; "
+                                 "remove the stamp (see PROPAGATE.md)"))
             continue
         stamped_name, sha, pin = m.group(1), m.group(2), m.group(3)
         commits, err = commits_since(sha, stamped_name)
