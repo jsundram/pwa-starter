@@ -46,6 +46,22 @@ pwa-starter/
 
 After install: `/pwa-starter:audit`, `/pwa-starter:scaffold`, `/pwa-starter:propagate` — in any repo.
 
+### Executed evidence
+
+Phases 1–4 have been run end to end on **`claude/pwa-starter-skills-poc`** (3 commits off `455fdb9`).
+That branch is a proof-of-concept to review or discard independently — this branch carries the plan
+only. All invariants held: no stamped file or `PROPAGATE.md` touched, `sw-lint.py` + `sw.test.mjs`
+green, prose preserved at +3.2% against the +5% ceiling.
+
+Two things the run *proved* rather than assumed, and both would have been wrong if left as guesses:
+
+- **`plugins/pwa-starter/` must be self-contained.** An installed plugin is copied to a cache and
+  cannot read files outside its own directory. The first design had the plugin at the repo root with
+  skills pointing at `../../sw.js` and a top-level `docs/` — that works under `--plugin-dir` and
+  breaks silently on a real install. It is why the references live *inside* the plugin directory, and
+  why the scaffold skill starts from the GitHub template rather than bundling the files.
+- **CLAUDE.md's size criterion is words, not lines** — see Phase 1.
+
 ---
 
 ## Invariants
@@ -170,7 +186,23 @@ Pure content relocation. No behavior change, no shared-file edits.
       The second should exceed the first only by the new per-file headings — call it **+5% ceiling,
       0% floor**. Coming in *under* means content was dropped; well over means it was rewritten.
       Either way that is a different PR than this one.
-- [ ] `wc -l CLAUDE.md` ≤ 90.
+- [ ] **CLAUDE.md shrinks by ~10×, measured in words.** ~~`wc -l CLAUDE.md` ≤ 90~~ — criterion
+      amended, and the reason is worth recording rather than quietly dropping. Lines are a bad proxy
+      here: this repo's prose wraps at ~95 chars, so a line count rewards re-wrapping and punishes
+      nothing. Words track context cost, which is the actual goal.
+
+      Measured on the `claude/pwa-starter-skills-poc` branch, where this phase was run end to end:
+
+      | | Before | After |
+      |---|---:|---:|
+      | words | 10,503 | 926 |
+      | lines | 850 | 108 |
+
+      108 lines is over the original 90. The header, file hierarchy, "What this is" and
+      dev-environment sections all compressed; what would not was eight maintainer rules, each a trap
+      with a real consequence (a rename that silently breaks stamp tracking, a missed `V` bump that
+      strands a fix, a non-`SHELL` script served stale forever). Cutting those to reach an arbitrary
+      line count optimizes the metric, not the goal.
 - [ ] `grep -rn "CLAUDE.md#" README.md docs/ plugins/` returns no dead anchors.
 - [ ] I5 passes.
 
@@ -350,71 +382,152 @@ throughout" rule is what buys project-page portability, and an absolute-path sit
 
 ---
 
-## Phase 5 — The `propagate` skill and a registry heartbeat *(requirement 1)*
+## Phase 5 — The `propagate` skill and registry hygiene *(requirement 1)*
 
-**Do**
+The forward half of requirement 1: keeping the registry trustworthy once the copies are in sync.
+The Phase 0 baseline says the fleet is at `0 behind` — so nothing here is firefighting, and all four
+items are about the registry's *own* failure modes rather than the copies'.
 
-1. `plugins/pwa-starter/skills/propagate/SKILL.md`, from CLAUDE.md §Propagating a fix (719–747) plus
-   PROPAGATE.md's own rules: two-way flow (port upstream *first*, let the stamp catch up), stamp only
-   whole-file copies, `--at` for an older sync point, `pinned:` with a mandatory reason, and how to
-   write a PROPAGATE entry that is an instruction rather than a changelog line.
-2. **Teach the checker about deliberate non-copies** — the fix for baseline problem 2. `pinned:`
-   cannot express it, because it lives inside a stamp and a non-copy must not carry one. Add a
-   suppression list the checker reads (path globs plus a mandatory reason, mirroring `pinned:`), and
-   report those separately from genuine untracked candidates. Seed it with the three standing cases:
-   `quartet-log/src/pullToRefresh.js` (the ancestor this skeleton's copy was written *from*),
-   `quartets.boccherini.org/app.js` and `gallery-deck/web/public/app.js` (partial adopters that took
-   only the ~59-line version-tag region). Keep discovery-by-fingerprint intact — the point is to
-   silence *known* answers, never to stop looking.
-3. **Add a staleness check for PROPAGATE's own prose** — the fix for baseline problem 1, and the gap
-   nothing currently covers. A "known affected: X needs the full port" line that stays after X is
-   stamped current is worse than no line, because it sends you to re-do finished work. Cheapest
-   version: have the checker cross-reference each entry's named repos against their live stamps and
-   flag any that claims a copy is behind when the scan says it is current.
-4. Give the registry a heartbeat. `check-downstream.py` is the third-most-churned file here and runs
-   only when remembered. Add a scheduled workflow that clones the known copies and runs the checker,
-   opening/updating one issue when anything is behind. Keep it **non-fatal on clone failure** — the
-   repo's own ethos: "no network" must not read as "the fleet is broken."
-   **Declare what it cannot see.** `musiclog` / `viz.runningwithdata.com` is a standing two-way
-   example in PROPAGATE.md, but there is no GitHub repo for it — `runningwithdata.com` is a Jekyll
-   blog with no skeleton files. A CI heartbeat that clones GitHub repos will structurally miss it, so
-   the local `check-downstream.py ~/Dropbox/Code` run stays authoritative and the workflow must say
-   so in its output rather than implying full coverage.
-5. Fleet resolution is **complete as of the Phase 0 baseline** — all 46 account repos enumerated,
-   19 web-shaped ones cloned and scanned. `quartet-chooser`, `haydnenthusiasts.org`, `haydn-lowdn`
-   and `boccherini-sampler` are confirmed **non-copies** (no skeleton basenames, none of the six
-   fingerprints). Record them in PROPAGATE.md's known-non-copies table so future scans stay quiet.
+### 5a — the `propagate` skill
+
+`plugins/pwa-starter/skills/propagate/SKILL.md`, from CLAUDE.md §Propagating a fix (719–747) plus
+PROPAGATE.md's own rules: two-way flow (port upstream *first*, let the stamp catch up), stamp only
+whole-file copies, `--at` for an older sync point, `pinned:` with a mandatory reason, and how to write
+an entry that reads as an instruction rather than a changelog line.
 
 **Done when**
+- [ ] `SKILL.md` exists, is ≤ 500 lines, and every relative link resolves:
+      `for l in $(grep -oE '\]\(\.\.[^)]*\)' SKILL.md | sed 's/^](//;s/)$//'); do test -e "$l" || echo "BROKEN $l"; done`
+- [ ] It states the two-way rule and the whole-file-only rule explicitly — both are load-bearing and
+      both have already been violated once (`2204889` reverted three bad stamps).
+
+### 5b — teach the checker about deliberate non-copies
+
+`pinned:` cannot express "this is not a copy": it lives *inside* a stamp, and a non-copy must not
+carry one. So the three standing non-stamps resurface as untracked candidates on every scan, forever
+— the same signal erosion as an unannotated cosmetic commit.
+
+**Do.** Add a `NON_COPIES` table to `check-downstream.py` beside `SHARED`: path suffix → mandatory
+reason, reported in its own section rather than under untracked. Seed it with
+`quartet-log/src/pullToRefresh.js` (the **ancestor** this skeleton's version was written from),
+`quartets.boccherini.org/app.js` and `gallery-deck/web/public/app.js` (partial adopters of the
+~59-line version-tag region). Keep fingerprint discovery untouched — this silences *known* answers,
+never the search. Report an entry that matches nothing as stale, so the list cannot rot silently the
+way PROPAGATE's prose did.
+
+**Done when**
+- [ ] `python3 scripts/check-downstream.py <tree>` reports `0 untracked` and lists three known
+      non-copies with their reasons.
+- [ ] Planting an unstamped copy still surfaces it:
+      `cp sw.js /tmp/fleet/fake-app/sw.js && python3 scripts/check-downstream.py /tmp/fleet` shows it.
+- [ ] A `NON_COPIES` entry pointing at a path that no longer exists is reported stale, not ignored.
+- [ ] Exit code is unchanged for a clean fleet (0) and for a behind one (1).
+
+### 5c — catch the doc falling behind the copies
+
+The failure the machinery does *not* guard against, and it is live right now: entry `64b442d` still
+says `quartets.boccherini.org` "needs the full port" and `AKM/sw.js` is "behind three families at
+once". Both are stamped `@ 3ec3032` and verifiably current. A stale "known affected" line is worse
+than none — it sends you to redo finished work.
+
+**Do.** Give entries an optional structured trailer the parser can read —
+`Known affected: <repo>/<path> …` — and have the checker flag any named copy the scan says is
+current. Free prose stays free; only the trailer is machine-read.
+
+**Done when**
+- [ ] Run against today's `PROPAGATE.md` flags the `#9` entry's two stale claims.
+- [ ] After correcting them, the check passes and `read_propagate()`'s existing behavior is unchanged
+      (`python3 scripts/check-downstream.py <tree>` output is otherwise byte-identical).
+
+### 5d — normalize the names
+
+`PROPAGATE.md` calls one repo two things: `quartet-log` (43–46) and bare `musiclog` (32, 116), with
+the equivalence stated once, parenthetically, inside a table row. **musiclog was renamed to
+quartet-log.** That drift produced a phantom "untracked copy with no GitHub repo" in this plan's own
+first draft — the registry misleading its own maintainer, which is exactly the class of defect 5b and
+5c address.
+
+**Do.** Normalize to `quartet-log` throughout, with one parenthetical carrying the former name and the
+deployed URL. Re-check the other standing names for the same rot while in there.
+
+**Done when**
+- [ ] `grep -c "musiclog" PROPAGATE.md` returns `1` — the parenthetical. (This plan file discusses
+      the term deliberately; scope the check to the registry.)
+- [ ] Every repo name in `PROPAGATE.md` matches a real directory in the scanned tree.
+
+### 5e — give the registry a heartbeat
+
+`check-downstream.py` is the third-most-churned file here and runs only when remembered.
+
+**Do.** A scheduled workflow that clones the tracked copies, runs the checker, and opens or updates a
+single issue when anything is behind. **Non-fatal on clone failure** — the repo's own ethos: "no
+network" must not read as "the fleet is broken." Every tracked copy is a GitHub repo, so this has no
+blind spot; `gallery-deck` is private and needs a token, or an explicit note that it is skipped.
+
+**Done when**
+- [ ] Manual dispatch is green and its report matches a local `check-downstream.py ~/Dropbox/Code` run.
+- [ ] A deliberately unreachable repo in the list produces a warning and a zero exit, not a red run.
+- [ ] It states which copies it could not reach rather than implying full coverage.
+
+### Fleet resolution — already complete
+
+All 46 account repos enumerated, 19 web-shaped ones cloned and scanned (Phase 0). `quartet-chooser`,
+`haydnenthusiasts.org`, `haydn-lowdn` and `boccherini-sampler` are confirmed **non-copies**. Record
+them in PROPAGATE.md's known-non-copies table so future scans stay quiet.
+
+**Phase-level done when**
 
 - [ ] `python3 scripts/check-downstream.py ~/Dropbox/Code > /tmp/downstream-after.txt` and **I2 holds**
-      (`diff` against the Phase 0 baseline is empty).
-- [ ] The scheduled workflow runs green on a manual dispatch and its report matches the local run.
-- [ ] Each of the four repos above is either stamped or explicitly recorded as a non-copy.
+      (`diff` against the Phase 0 baseline is empty *except* for the new known-non-copies section).
+- [ ] `python3 scripts/sw-lint.py && node scripts/sw.test.mjs` still green.
 
-**Review:** I2 is the acceptance test for requirement 1 in its entirety. If the diff is non-empty,
-something in Phases 1–4 touched a tracked file — find it before merging.
+**Review:** I2 is the acceptance test for requirement 1 in its entirety. If the diff shows anything
+beyond the new section, something in Phases 1–4 touched a tracked file — find it before merging. Note
+that 5b–5d all edit `check-downstream.py` or `PROPAGATE.md`, neither of which is a stamped file, so I1
+still holds; verify that rather than assuming it.
 
 ---
 
 ## Phase 6 — Housekeeping
 
-**Do**
+Small, but each item is a piece of institutional memory that disappears if the issue closes silently.
 
-1. Close **#9** — its work landed in `77fcb35` (cache-first serve, warm/cold bounds, nav-5xx throw,
-   catch-path re-read, `scripts/sw.test.mjs`, `.github/workflows/checks.yml`).
-2. Close **#8**, recording that the repo answered it with a **third** option neither the issue's A nor
-   B proposed: a zero-dependency node script running `sw.js` unmodified under mocked SW globals and a
-   fake clock — no browser engine, no `package.json`, no `node_modules`, and it runs in CI. That is a
-   better answer than either option and deserves to be written down before the issue disappears.
-3. Update `README.md` to lead with the three entry points; the "starter" job is the finished one.
+### 6a — close #9
+
+Its work landed in `77fcb35`: cache-first serve, warm/cold `withTimeout` bounds, the nav-5xx throw
+with the opaqueredirect and permanent-4xx carve-outs, the catch-path cache re-read,
+`scripts/sw.test.mjs`, and `.github/workflows/checks.yml`.
 
 **Done when**
+- [ ] Closed with a comment naming `77fcb35` and confirming the fleet carries it —
+      `AKM`, `haydn-info-card` and `quartets.boccherini.org` are all stamped `@ 3ec3032`.
 
-- [ ] #8 and #9 closed with a comment naming the commit that resolved each.
-- [ ] README's two-ways-to-use section is three ways, with the install command.
+### 6b — close #8, recording the answer it did not anticipate
 
----
+#8 asked "Option A (npm + playwright) or Option B (uv + PEP-723 + playwright)?" The repo shipped
+**neither**: `scripts/sw.test.mjs` loads `sw.js` unmodified under mocked SW globals with a fake clock
+— no browser engine, no `package.json`, no `node_modules`, and it runs in CI on every push. That is a
+better answer than either option the issue posed, and the reasoning is nowhere else.
+
+Record with it the two constraints that make it work, both of which look gratuitous to a later reader:
+the `process.exitCode = 1` hang guard (with only fake timers, a hung handler drains node's event loop
+and exits 0 — silently green on the exact regression the suite exists to catch), and the fact that it
+covers the *fetch handler* only, leaving the precache/generation half to `sw-lint.py` and prose.
+
+**Done when**
+- [ ] Closed with that reasoning in the comment, not just a link.
+- [ ] `references/testing.md` describes what the repo does before what AKM does. *(Done on
+      `claude/pwa-starter-skills-poc`.)*
+
+### 6c — stale references
+
+CLAUDE.md cited a `nav.css` that does not exist and described AKM's `package.json` harness as if it
+were this repo's plan.
+
+**Done when**
+- [ ] `grep -rn "nav.css" .` only appears where it is explicitly labelled a pattern to add. *(Done on
+      the PoC branch.)*
+- [ ] README leads with three entry points and the install command. *(Done on the PoC branch.)*
 
 ## Review rubric
 
@@ -427,7 +540,7 @@ For reviewing the whole change, independent of the phases:
 3. **Requirement 3 — bootstraps new projects.** The scratch-app placeholder grep is empty and
    `sw-lint` + `sw.test.mjs` pass inside it.
 4. **No knowledge lost.** I6's word count, and `references/` renders on GitHub with working links.
-5. **No context regression.** `wc -l CLAUDE.md` ≤ 90.
+5. **No context regression.** CLAUDE.md is ~926 words, down from 10,503 (~10x). See Phase 1 for why the criterion is words, not lines.
 6. **Self-containment.** Nothing under `plugins/pwa-starter/` reaches outside itself.
 
 ## Out of scope
