@@ -72,17 +72,32 @@ must land together, what adopter-visible trade it carries, and which known copie
 
 ## Keep the registry honest
 
-Two failure modes, neither of which the tooling currently catches:
+The stamp catches a copy falling behind the doc. Two failure modes run the other way, and the checker
+now covers both — but only if you feed them.
 
-- **The doc falling behind the copies.** A "known affected: X needs the full port" line that outlives
-  the port is worse than no line — it sends you to redo finished work. When you finish a port,
-  re-stamp the copy *and* update the entry that named it. As of 2026-08-21 the `#9` entry still
-  claimed `quartets.boccherini.org` and `AKM/sw.js` were behind; both were current.
-- **Permanent false positives.** The three deliberate non-stamps above resurface as "untracked
-  candidates" on every scan, because `pinned:` lives inside a stamp and a non-copy must not carry one.
-  Until the checker grows a suppression list, recognize them and move on rather than stamping them.
+**The doc falling behind the copies.** A "needs the full port" line that outlives the port is worse
+than no line: it sends you to redo finished work. So when an entry names copies that must act, add a
+machine-readable trailer under the bullet —
+
+```
+  Known-affected: quartets.boccherini.org/sw.js AKM/sw.js
+```
+
+— and the scan flags any of them it finds already stamped and current. Hyphenated and path-shaped on
+purpose: entries also write "Known affected:" in prose, and a marker that collided with prose would
+swallow the note instead of parsing it. When you finish a port, re-stamp the copy *and* update the
+entry. (The `#9` entry claimed `quartets.boccherini.org` and `AKM/sw.js` were behind for weeks after
+both were current; that is what motivated the check.)
+
+**Deliberate non-copies resurfacing forever.** `pinned:` cannot express "this is not a copy" — a pin
+lives inside a stamp, and a non-copy must not carry one. So known non-copies live in `NON_COPIES` in
+`check-downstream.py`, keyed by path suffix with a mandatory reason, and are reported in their own
+section instead of as untracked. Add an entry when you decide a resembling file is an independent
+implementation or a partial adopter. An entry whose repo is scanned but whose file has moved is
+reported **stale** — a suppression nobody re-checks is how a real copy gets silenced.
 
 Discovery is deliberately *not* a hand-maintained list of repos — a list rots the first time you
 forget one. Point the checker at a tree of clones; it finds copies by stamp and flags
-unstamped-but-recognizable files so a forgotten repo surfaces itself. Note it can only see clones you
-have locally: `musiclog` / `viz.runningwithdata.com` has no GitHub repo, so a CI-only scan misses it.
+unstamped-but-recognizable files so a forgotten repo surfaces itself. It sees only what you have
+checked out, so scan a tree that holds every copy — a private repo needs credentials, not an
+exception.

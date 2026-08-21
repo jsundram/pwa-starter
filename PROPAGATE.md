@@ -29,7 +29,7 @@ out to have solved something worth pulling back into the common core (that's how
 patterns got here). The stamp records "synced *from* pwa-starter at sha X" and says nothing about
 work flowing the other way. So when an app grows something general, **port it here first and let the
 stamp catch up** — don't leave it downstream and rely on remembering, which is the exact failure this
-whole mechanism exists to prevent. `musiclog` is the standing example in both directions.
+whole mechanism exists to prevent. `quartet-log` is the standing example in both directions.
 
 **Only stamp whole-file copies.** This mechanism tracks provenance per *file*, because that's the
 granularity `git log <sha>..HEAD -- <file>` can answer. A fingerprint match proves only
@@ -40,7 +40,7 @@ recur, and neither should be stamped:
 
 | Flagged | Why it isn't a copy |
 |---|---|
-| `quartet-log/src/app.js` (a.k.a. `viz.runningwithdata.com/musiclog`) | 573-line ES-module `export class App` vs. this skeleton's 178-line classic script. Shares only `VER_PREFIX`, the fingerprint. |
+| `quartet-log/src/app.js` (formerly `musiclog`; deploys to `viz.runningwithdata.com/musiclog`) | 573-line ES-module `export class App` vs. this skeleton's 178-line classic script. Shares only `VER_PREFIX`, the fingerprint. |
 | `quartet-log/src/pullToRefresh.js` | Independent implementation, own prose and code — and it's the **ancestor**: this skeleton's version was written from it. |
 
 quartet-log is the sharpest case of the two-way flow above: it originated the cache-first paint
@@ -108,15 +108,16 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   is served cache-first with no revalidation until the old generation is collected.
   Known affected: `haydn-info-card` is the **upstream** for this change (its #10) — don't
   re-port the strategy, but DO back-port the opaqueredirect/404 refinement above, then re-stamp
-  its `web/sw.js` at this sha. `quartets.boccherini.org` carries the old network-first live
-  branch verbatim and needs the full port. `AKM/sw.js` (unstamped ancestor-pattern worker) is
-  behind **three** families at once — the ungated `c.put` (2ed87e9), the #7 offline family
-  (undefined-resolving catch, bare `addAll`-era precache), and this one — and its venue use case
-  (weak signal at a concert hall) is the lie-fi scenario verbatim; treat it as a modernization
-  pass, not a patch. `musiclog` has an independent SW with the same unbounded network-first
+  its `web/sw.js` at this sha. **DONE 2026-08-21:** `quartets.boccherini.org/sw.js` (the full
+  port) and `AKM/sw.js` (a modernization pass across three families at once — the ungated
+  `c.put` (2ed87e9), the #7 offline family, and this one) are both ported, stamped `@ 3ec3032`
+  and verified to carry `withTimeout`/`isTransientStatus`/`cacheLookup`/`bootable`. AKM's venue
+  use case — weak signal at a concert hall — was the lie-fi scenario verbatim, which is why it
+  was worth the pass. `quartet-log` has an independent SW with the same unbounded network-first
   navigations — hand-port per its standing rule, don't stamp. `gallery-deck` stays pinned (no
   real offline mode; note lie-fi over its tailnet still blanks navigations — a bounded fallback
   would at least fail visibly if it ever unpins). (pwa-starter#9)
+  Known-affected: quartet-log/static/sw.js
 
 - dd763ca  The #7 offline family: per-file precache (`ensureShell()`), version-scoped reads
   (`cacheLookup()`), repair-then-directional-collect (`topUpThenCollect()`), terminal

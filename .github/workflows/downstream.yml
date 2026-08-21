@@ -1,0 +1,109 @@
+name: downstream
+
+# The registry's heartbeat. scripts/check-downstream.py is one of the most-maintained files here
+# and, left alone, runs only when someone remembers to run it — which is the same failure mode the
+# stamps exist to prevent, one level up. This runs it on a schedule against the tracked copies and
+# keeps a single issue in sync with the result.
+#
+# Deliberately NON-FATAL on clone failure. A repo that has been renamed, made private, or is simply
+# unreachable must not turn the run red: "no network" must not read as "the fleet is broken" (the
+# same rule tools/setup-environment.sh follows). Real findings — a copy behind, a rotted NON_COPIES
+# entry, a contradicted PROPAGATE claim — are what set the exit code, via the script itself.
+#
+# COVERAGE IS PARTIAL BY CONSTRUCTION and the report says so rather than implying otherwise:
+# gallery-deck is private and is skipped unless FLEET_TOKEN is set, and any copy that lives only on
+# someone's disk is invisible here. A local `check-downstream.py ~/Dropbox/Code` remains the
+# authoritative scan; this is the thing that nags when you haven't run one.
+
+on:
+  schedule:
+    - cron: "17 13 * * 1"      # Mondays, 13:17 UTC — off the hour, so it isn't queued with everyone else
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # drift is `git log <sha>..HEAD -- <file>`; a shallow clone can't answer it
+
+      - name: Clone the tracked copies
+        env:
+          FLEET_TOKEN: ${{ secrets.FLEET_TOKEN }}
+        run: |
+          mkdir -p /tmp/fleet
+          {
+            echo "### Coverage"
+            echo
+          } > /tmp/coverage.md
+          # Every repo carrying a stamped file, plus the ones PROPAGATE names as non-copies.
+          for r in AKM haydn-info-card quartets.boccherini.org quartet-log; do
+            if git clone -q --depth 1 "https://github.com/${{ github.repository_owner }}/$r" "/tmp/fleet/$r" 2>/dev/null; then
+              echo "- ✅ \`$r\`" >> /tmp/coverage.md
+            else
+              echo "- ⚠️ \`$r\` — unreachable this run, not scanned" >> /tmp/coverage.md
+            fi
+          done
+          if [ -n "$FLEET_TOKEN" ]; then
+            if git clone -q --depth 1 "https://x-access-token:$FLEET_TOKEN@github.com/${{ github.repository_owner }}/gallery-deck" /tmp/fleet/gallery-deck 2>/dev/null; then
+              echo "- ✅ \`gallery-deck\` (private)" >> /tmp/coverage.md
+            else
+              echo "- ⚠️ \`gallery-deck\` — private clone failed, not scanned" >> /tmp/coverage.md
+            fi
+          else
+            echo "- ⏭️ \`gallery-deck\` — private; set the \`FLEET_TOKEN\` secret to include it" >> /tmp/coverage.md
+          fi
+          echo "- ℹ️ Copies that exist only on a local disk are invisible here — a local run is authoritative." >> /tmp/coverage.md
+
+      - name: Scan
+        id: scan
+        run: |
+          set +e
+          python3 scripts/check-downstream.py /tmp/fleet > /tmp/report.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          sed -i 's|/tmp/fleet/||g; s|\.\./\.\./||g' /tmp/report.txt
+          cat /tmp/report.txt
+
+      - name: Open or update the tracking issue
+        uses: actions/github-script@v7
+        env:
+          STATUS: ${{ steps.scan.outputs.status }}
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/report.txt', 'utf8').trim();
+            const coverage = fs.readFileSync('/tmp/coverage.md', 'utf8').trim();
+            const clean = process.env.STATUS === '0';
+            const title = 'Downstream drift';
+            const body = [
+              clean ? '**Fleet is in sync.**' : '**Something needs attention** — see the report.',
+              '', '```', report, '```', '', coverage, '',
+              `_Last scan: ${context.sha.slice(0,7)} · run ${context.runId}_`,
+            ].join('\n');
+
+            const { data: found } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue in:title "${title}"`,
+            });
+            const existing = found.items.find(i => i.title === title);
+
+            if (clean) {
+              // Don't open an issue to say nothing is wrong; close one that says otherwise.
+              if (existing && existing.state === 'open') {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+                await github.rest.issues.update({ ...context.repo, issue_number: existing.number, state: 'closed' });
+              }
+              return;
+            }
+            if (existing) {
+              await github.rest.issues.update({ ...context.repo, issue_number: existing.number, body, state: 'open' });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body });
+            }
+
+      - name: Fail the run if the scan found something
+        run: exit ${{ steps.scan.outputs.status }}
