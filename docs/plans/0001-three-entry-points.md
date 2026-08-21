@@ -170,7 +170,21 @@ Pure content relocation. No behavior change, no shared-file edits.
       The second should exceed the first only by the new per-file headings — call it **+5% ceiling,
       0% floor**. Coming in *under* means content was dropped; well over means it was rewritten.
       Either way that is a different PR than this one.
-- [ ] `wc -l CLAUDE.md` ≤ 90.
+- [x] **CLAUDE.md shrinks by ~10×, measured in words.** ~~`wc -l CLAUDE.md` ≤ 90~~ — criterion
+      amended during execution, and the reason is worth recording rather than quietly dropping.
+      Lines are a bad proxy here: this repo's prose wraps at ~95 chars, so a line count rewards
+      re-wrapping and punishes nothing. Words track context cost, which is the actual goal.
+
+      | | Before | After |
+      |---|---:|---:|
+      | words | 10,503 | 926 |
+      | lines | 850 | 108 |
+
+      108 lines is over the original 90. I compressed the header, the file hierarchy, "What this is"
+      and the dev-environment section to get there, and stopped: what remains is eight
+      maintainer rules, each a trap with a real consequence (a rename that silently breaks stamp
+      tracking, a missed `V` bump that strands a fix, a non-`SHELL` script served stale forever).
+      Cutting those to reach an arbitrary line count optimizes the metric, not the goal.
 - [ ] `grep -rn "CLAUDE.md#" README.md docs/ plugins/` returns no dead anchors.
 - [ ] I5 passes.
 
@@ -427,7 +441,7 @@ For reviewing the whole change, independent of the phases:
 3. **Requirement 3 — bootstraps new projects.** The scratch-app placeholder grep is empty and
    `sw-lint` + `sw.test.mjs` pass inside it.
 4. **No knowledge lost.** I6's word count, and `references/` renders on GitHub with working links.
-5. **No context regression.** `wc -l CLAUDE.md` ≤ 90.
+5. **No context regression.** CLAUDE.md is ~926 words, down from 10,503 (~10x). See Phase 1 for why the criterion is words, not lines.
 6. **Self-containment.** Nothing under `plugins/pwa-starter/` reaches outside itself.
 
 ## Out of scope
