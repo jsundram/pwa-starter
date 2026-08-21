@@ -13,23 +13,25 @@ It's the distilled memory of four hand-built web apps
 which grew the same list of forgotten-then-retrofitted features. This repo turns that list into a
 checklist and a working file set so the next app starts past those mistakes.
 
-## Two ways to use it
+## Three ways to use it
 
-**Start a new project** — clone this repo (or use it as a GitHub *template*), open a Claude Code
-session in it, and say:
+Install the plugin once and all three work in any repo, with no per-project setup:
 
-> I'd like to make a new project based on pwa-starter.
+```sh
+/plugin marketplace add jsundram/pwa-starter
+/plugin install pwa-starter@jsundram
+```
 
-Claude follows [`CLAUDE.md`](CLAUDE.md) → *New project*: it asks for the name / description / URL,
-replaces the placeholders, generates the icons, and hands you a running app.
+| | | |
+|---|---|---|
+| **Start a new project** | `/pwa-starter:scaffold` | Asks for the name / description / URL, replaces the placeholders, generates the icons, hands you a running app. Begins from the GitHub *template*, so the new app gets its own history. |
+| **Audit an app you already have** | `/pwa-starter:audit` | Runs the checklist against the repo you're sitting in and reports the gaps with evidence — exactly how you'd bring Haydn or Boccherini up to spec. |
+| **Carry a fix downstream** | `/pwa-starter:propagate` | Finds the apps that vendored these files, says which are behind, and what each needs to do about it. |
 
-**Audit an app you already have** — open a Claude session in that app's repo, add this repo to the
-session, and say:
-
-> Audit this app against the pwa-starter checklist and tell me what's missing.
-
-Claude follows [`CLAUDE.md`](CLAUDE.md) → *Audit an existing app*: it runs the checklist against
-your code and reports the gaps (this is exactly how you'd bring Haydn or Boccherini up to spec).
+The checklist and the reasoning behind it live in
+[`plugins/pwa-starter/references/`](plugins/pwa-starter/references/) — start with
+[`checklist.md`](plugins/pwa-starter/references/checklist.md). [`CLAUDE.md`](CLAUDE.md) is now just
+the rules for working *on* this repo.
 
 ## What's in the box
 
@@ -44,6 +46,7 @@ usage/          optional: a client-side dashboard that reads those pings back
 assets/         icon.svg + og.svg (sources) → run the scripts to rasterize
 scripts/        make-icons.sh · make-og.sh · sw-lint.py · og-lint.py · analytics.gs (backend reference)
 tools/          setup-environment.sh — check/install the build toolchain (run by a SessionStart hook)
+plugins/        the Claude Code plugin: audit / scaffold / propagate skills + the reference docs
 .githooks/      pre-commit that runs sw-lint + og-lint (enable: git config core.hooksPath .githooks)
 ```
 
@@ -72,15 +75,16 @@ scripts/make-og.sh             # og.svg → assets/og.png (the share card)
 python3 -m http.server 8000    # open http://localhost:8000/  — installable + offline after one load
 ```
 
-Then read [`CLAUDE.md`](CLAUDE.md) for the full checklist and the reasoning behind each piece.
+Then read [`checklist.md`](plugins/pwa-starter/references/checklist.md) for the full checklist and
+the reasoning behind each piece.
 
 ## Sources
 
 Every rule here was paid for once, in one of these apps. The first four are the *"forgot the list,
 then retrofitted it"* origin story — each grew the same set of late-added features (share card,
 offline, install polish, dark mode, analytics), and the diff between them is the
-[maturity gradient](CLAUDE.md#the-maturity-gradient-why-the-checklist-exists) the checklist is built
-from. The last three are build-step / advanced-pattern references CLAUDE.md points at as worked
+[maturity gradient](plugins/pwa-starter/references/history.md) the checklist is built
+from. The last three are build-step / advanced-pattern references the docs point at as worked
 examples.
 
 | App | Contributed |
