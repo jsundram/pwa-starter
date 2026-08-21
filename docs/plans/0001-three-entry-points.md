@@ -1,6 +1,7 @@
 # Plan 0001 — Three entry points: propagate, audit, scaffold
 
-**Status:** proposed · **Branch:** `claude/pwa-starter-future-sn3mnd` · **Base:** `3ec3032`
+**Status:** Phases 1–6 implemented on `claude/pwa-starter-skills-poc`; `claude/pwa-starter-future-sn3mnd`
+carries the plan alone · **Base:** `3ec3032`
 
 This document is both the **work order** and the **review rubric**. Execute the phases in order;
 review each one against its *Done when* checks. Every check is a command whose output you can paste
@@ -396,9 +397,9 @@ whole-file copies, `--at` for an older sync point, `pinned:` with a mandatory re
 an entry that reads as an instruction rather than a changelog line.
 
 **Done when**
-- [ ] `SKILL.md` exists, is ≤ 500 lines, and every relative link resolves:
+- [x] `SKILL.md` exists (88 lines) and every relative link resolves:
       `for l in $(grep -oE '\]\(\.\.[^)]*\)' SKILL.md | sed 's/^](//;s/)$//'); do test -e "$l" || echo "BROKEN $l"; done`
-- [ ] It states the two-way rule and the whole-file-only rule explicitly — both are load-bearing and
+- [x] It states the two-way rule and the whole-file-only rule explicitly — both are load-bearing and
       both have already been violated once (`2204889` reverted three bad stamps).
 
 ### 5b — teach the checker about deliberate non-copies
@@ -416,12 +417,14 @@ never the search. Report an entry that matches nothing as stale, so the list can
 way PROPAGATE's prose did.
 
 **Done when**
-- [ ] `python3 scripts/check-downstream.py <tree>` reports `0 untracked` and lists three known
+- [x] `python3 scripts/check-downstream.py <tree>` reports `0 untracked` and lists three known
       non-copies with their reasons.
-- [ ] Planting an unstamped copy still surfaces it:
+- [x] Planting an unstamped copy still surfaces it:
       `cp sw.js /tmp/fleet/fake-app/sw.js && python3 scripts/check-downstream.py /tmp/fleet` shows it.
-- [ ] A `NON_COPIES` entry pointing at a path that no longer exists is reported stale, not ignored.
-- [ ] Exit code is unchanged for a clean fleet (0) and for a behind one (1).
+- [x] A `NON_COPIES` entry pointing at a path that no longer exists is reported stale — and only
+      when its repo was actually scanned, or scanning one repo would flag every other entry.
+- [x] Exit code is unchanged for a clean fleet (0) and for a behind one (1); a rotted entry or a
+      contradicted claim also exits 1.
 
 ### 5c — catch the doc falling behind the copies
 
@@ -435,8 +438,8 @@ than none — it sends you to redo finished work.
 current. Free prose stays free; only the trailer is machine-read.
 
 **Done when**
-- [ ] Run against today's `PROPAGATE.md` flags the `#9` entry's two stale claims.
-- [ ] After correcting them, the check passes and `read_propagate()`'s existing behavior is unchanged
+- [x] Ran against `PROPAGATE.md` and flagged both stale `#9` claims, then passed once corrected.
+- [x] After correcting them the check passes; `read_propagate()`'s existing behavior is unchanged
       (`python3 scripts/check-downstream.py <tree>` output is otherwise byte-identical).
 
 ### 5d — normalize the names
@@ -451,9 +454,9 @@ first draft — the registry misleading its own maintainer, which is exactly the
 deployed URL. Re-check the other standing names for the same rot while in there.
 
 **Done when**
-- [ ] `grep -c "musiclog" PROPAGATE.md` returns `1` — the parenthetical. (This plan file discusses
+- [x] `grep -c "musiclog" PROPAGATE.md` returns `1` — the parenthetical. (This plan file discusses
       the term deliberately; scope the check to the registry.)
-- [ ] Every repo name in `PROPAGATE.md` matches a real directory in the scanned tree.
+- [x] Every repo name in `PROPAGATE.md` matches a real directory in the scanned tree.
 
 ### 5e — give the registry a heartbeat
 
@@ -466,8 +469,9 @@ blind spot; `gallery-deck` is private and needs a token, or an explicit note tha
 
 **Done when**
 - [ ] Manual dispatch is green and its report matches a local `check-downstream.py ~/Dropbox/Code` run.
-- [ ] A deliberately unreachable repo in the list produces a warning and a zero exit, not a red run.
-- [ ] It states which copies it could not reach rather than implying full coverage.
+      **Not yet run** — needs the workflow on a branch GitHub will schedule from.
+- [x] A deliberately unreachable repo produces a warning and a zero exit, not a red run (simulated).
+- [x] It states which copies it could not reach rather than implying full coverage.
 
 ### Fleet resolution — already complete
 
@@ -479,7 +483,11 @@ them in PROPAGATE.md's known-non-copies table so future scans stay quiet.
 
 - [ ] `python3 scripts/check-downstream.py ~/Dropbox/Code > /tmp/downstream-after.txt` and **I2 holds**
       (`diff` against the Phase 0 baseline is empty *except* for the new known-non-copies section).
-- [ ] `python3 scripts/sw-lint.py && node scripts/sw.test.mjs` still green.
+      **Run this on your own tree.** The equivalent was verified here against fresh clones of all
+      19 web-shaped account repos plus `gallery-deck`: same `4 up to date, 0 behind, 1 pinned`, with
+      `3 untracked` becoming `3 known non-copies, 0 untracked`. A local tree may hold copies GitHub
+      does not, which is the whole reason this scan stays authoritative.
+- [x] `python3 scripts/sw-lint.py && node scripts/sw.test.mjs` still green.
 
 **Review:** I2 is the acceptance test for requirement 1 in its entirety. If the diff shows anything
 beyond the new section, something in Phases 1–4 touched a tracked file — find it before merging. Note
@@ -499,7 +507,7 @@ with the opaqueredirect and permanent-4xx carve-outs, the catch-path cache re-re
 `scripts/sw.test.mjs`, and `.github/workflows/checks.yml`.
 
 **Done when**
-- [ ] Closed with a comment naming `77fcb35` and confirming the fleet carries it —
+- [x] Closed with a comment naming `77fcb35` and confirming the fleet carries it —
       `AKM`, `haydn-info-card` and `quartets.boccherini.org` are all stamped `@ 3ec3032`.
 
 ### 6b — close #8, recording the answer it did not anticipate
@@ -515,8 +523,8 @@ and exits 0 — silently green on the exact regression the suite exists to catch
 covers the *fetch handler* only, leaving the precache/generation half to `sw-lint.py` and prose.
 
 **Done when**
-- [ ] Closed with that reasoning in the comment, not just a link.
-- [ ] `references/testing.md` describes what the repo does before what AKM does. *(Done on
+- [x] Closed with that reasoning in the comment, not just a link.
+- [x] `references/testing.md` describes what the repo does before what AKM does. *(Done on
       `claude/pwa-starter-skills-poc`.)*
 
 ### 6c — stale references
@@ -525,9 +533,9 @@ CLAUDE.md cited a `nav.css` that does not exist and described AKM's `package.jso
 were this repo's plan.
 
 **Done when**
-- [ ] `grep -rn "nav.css" .` only appears where it is explicitly labelled a pattern to add. *(Done on
+- [x] `grep -rn "nav.css" .` only appears where it is explicitly labelled a pattern to add. *(Done on
       the PoC branch.)*
-- [ ] README leads with three entry points and the install command. *(Done on the PoC branch.)*
+- [x] README leads with three entry points and the install command. *(Done on the PoC branch.)*
 
 ## Review rubric
 
