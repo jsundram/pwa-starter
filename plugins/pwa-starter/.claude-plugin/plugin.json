@@ -1,0 +1,7 @@
+{
+  "name": "pwa-starter",
+  "description": "Checklist, scaffolder, and downstream-sync helper for small static PWAs",
+  "version": "0.1.0",
+  "author": { "name": "Jason Sundram" },
+  "homepage": "https://github.com/jsundram/pwa-starter"
+}

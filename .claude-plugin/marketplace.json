@@ -1,0 +1,12 @@
+{
+  "name": "jsundram",
+  "owner": { "name": "Jason Sundram" },
+  "plugins": [
+    {
+      "name": "pwa-starter",
+      "source": "./plugins/pwa-starter",
+      "description": "Audit, scaffold, and propagate small static PWAs",
+      "version": "0.1.0"
+    }
+  ]
+}
