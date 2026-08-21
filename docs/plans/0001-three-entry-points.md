@@ -211,19 +211,20 @@ app", "what's missing vs pwa-starter", "is this installable/offline".
 
 **Do**
 
-1. **Step one is scope detection, before any checklist row.** The rubric's advice is wrong for three
-   of the four classes if applied blindly:
+1. **Step one is scope detection, before any checklist row** — and the dividing line is **what
+   reaches the browser**, not what built it. A React SSG that renders to static HTML is, for almost
+   every row, an ordinary static site; classifying by dependency list gets this backwards.
 
-   | Class | Signal | What applies |
+   | Class | Signal (in the **output**) | What applies |
    |---|---|---|
-   | A · static, no build | no `package.json` build script; hand-written `index.html` | Everything, including the `V`-bump + `sw-lint` discipline |
-   | B · static **with** a build | a build script emitting `dist/`/`public/`; Netlify/Vercel/Pages-from-build | Everything **except** cache-busting — content-hash the shell instead of hand-bumping `V` (`references/offline.md`, "Have a build step?") |
-   | C · framework / SPA | React/Vue/Svelte app shell, router | Share card, icons, manifest, mobile, dark mode, a11y. Offline is the framework's job (Workbox / `vite-plugin-pwa`) — report, do not retrofit `sw.js` |
+   | A · static, no build | hand-written `index.html`; no build script | Everything, including the `V`-bump + `sw-lint` discipline |
+   | B · static **from** a build | a build emits `dist/`/`public/` of plain HTML; little or no runtime framework | Everything **except** cache-busting — content-hash the shell instead of hand-bumping `V` (`references/offline.md`, "Have a build step?"). Audit the **generator**, not a hand-written `index.html` that may not exist |
+   | C · runtime framework / SPA | a framework bundle + router ship to the browser; one shell HTML | Share card, icons, manifest, mobile, dark mode, a11y. Offline is the framework's job (Workbox / `vite-plugin-pwa`) — report, do not retrofit `sw.js` |
    | D · has a backend | a server, a DB, authed endpoints | Say so and stop at the offline family; see gallery-deck in `references/history.md` |
 
-2. For class B/C, **read the files that generate the `<head>`**, not a static `index.html` that may
-   not exist. State this in the skill: the audit reads templates and build config, and where possible
-   the built output.
+2. For class B and C, **read the files that generate the `<head>`** — the page template, the SSG
+   entry, the build script — and where possible the built output. Say this in the skill: a class-B
+   app with no root `index.html` must not be reported as "everything missing."
 3. Emit the report as a table, worst-first, `✅/⚠️/❌` with **specific evidence** (the missing tag,
    the unversioned cache, the hover-only tooltip) and a rough cost per fix. Lead with share card,
    offline, cache-busting; nitpicks last.
@@ -233,20 +234,47 @@ app", "what's missing vs pwa-starter", "is this installable/offline".
 
 **Done when**
 
-- [ ] Dry run against **`jsundram/quartet-chooser`** (a real, known-answer case) produces a report that:
-  - [ ] classifies it **class B** — it is esbuild + React → `dist/`, deployed via `netlify.toml`,
-        `package.json` has `"build": "node scripts/build.mjs"`, and there is **no root `index.html`**;
+- [ ] Dry run against **`jsundram/quartet-chooser`** — a real, known-answer case, audited by hand
+      below — produces a report that:
+  - [ ] classifies it **class B**: `scripts/build.mjs` is a hand-rolled SSG (Gatsby is gone) that
+        renders each route to `dist/<route>/index.html`; React runs **only at build time**
+        (`renderToStaticMarkup`), and the browser gets static HTML, inlined CSS and two dependency-free
+        vanilla scripts. Not an SPA — the full checklist applies;
   - [ ] does **not** tell it to hand-bump a `V` constant;
-  - [ ] reads `src/pages/index.js`, `src/templates/*.js` and `src/lib/site.js` for head metadata
-        rather than reporting "no `index.html`, everything missing";
-  - [ ] flags the genuine gaps it finds with file-and-line evidence.
+  - [ ] reads `scripts/build.mjs` (`page_html()`), `src/pages/*.js` and `src/templates/*.js` for head
+        metadata instead of reporting "no `index.html`, everything missing";
+  - [ ] finds at least these, with file-and-line evidence (the known-answer set):
+
+        | Finding | Evidence |
+        |---|---|
+        | `og:image` is an **SVG** on every work and composer page — no preview in iMessage/WhatsApp/Slack | `src/lib/utils.js:44` returns `/<Composer>-Original.svg`, used by `src/templates/work.js:148` and `composer.js` |
+        | Home page card is a 512×512 square, not a 1200×630 raster | `src/pages/index.js:43` → `static/icon.png` |
+        | No `twitter:card`, `og:url`, `og:type`, `og:image:width/height/alt` anywhere | all three `Head` exports |
+        | No `<meta name="description">` (only `og:description`) | all three `Head` exports |
+        | Manifest has **icons and nothing else** — no `name`, `short_name`, `start_url`, `display`, `theme_color`, no `maskable` → installs unnamed on Android | `static/manifest.webmanifest` |
+        | No `apple-mobile-web-app-*` metas; no 180×180 apple-touch-icon (sizes jump 144→192) | `scripts/build.mjs` `page_html()` + manifest icon list |
+        | No `theme-color`, no `color-scheme: light dark` | `page_html()` |
+        | `viewport` lacks `viewport-fit=cover`; carries legacy `shrink-to-fit=no` | `page_html()` |
+        | No service worker — not offline, and this is a *rehearsal-room* app | no `sw.js` anywhere |
 - [ ] Dry run against a **class A** app (`haydn-info-card`) still produces the full checklist including
       the `V`/`sw-lint` rows — i.e. scope detection did not silently disable the core rubric.
 - [ ] `SKILL.md` ≤ 500 lines; every deep-dive is a link, not an inline copy.
 
-**Review:** the class-B branch is the whole point of this phase — without it the skill confidently
-gives wrong cache-busting advice to half the fleet. A reviewer should check the quartet-chooser run
-by hand, not trust the summary.
+**Review:** the class-B branch is the whole point of this phase — misclassify and the skill either
+gives wrong cache-busting advice or declares a perfectly good static site unauditable. Check the
+quartet-chooser run against the table above by hand; do not trust the summary.
+
+**Deploy note (surfaced by the same dry run).** Nothing in quartet-chooser is actually
+Netlify-specific: no `_redirects`, no `_headers`, no functions or edge handlers — `netlify.toml` is
+just `command` + `publish`. `404.html` and directory-index clean URLs work identically on GitHub
+Pages. So it **could** be a Pages app: add a `CNAME` to `static/` (copied through verbatim by
+`build.mjs` step 7 — today the custom domain lives only in Netlify's UI, so it is not in the repo),
+add a build-and-deploy workflow next to the existing `test.yml`, repoint DNS, drop `netlify.toml`.
+The one real coupling is that every asset path is **root-absolute** (`/js/shuffle.js`,
+`/manifest.webmanifest`, `SITE_URL`-prefixed OG images), so this works at a domain root — a custom
+domain or a user page — but **not** at a project path like `jsundram.github.io/quartet-chooser/`
+without a base-path pass. Worth a row in `references/deploy.md`: the skeleton's "relative paths
+throughout" rule is what buys project-page portability, and an absolute-path site has traded it away.
 
 ---
 
@@ -296,10 +324,16 @@ by hand, not trust the summary.
    workflow that clones the known copies and runs the checker, opening/updating one issue when
    anything is behind. Keep it **non-fatal on clone failure** — the repo's own ethos: "no network"
    must not read as "the fleet is broken."
-3. While here: confirm whether `quartet-chooser`, `boccherini-sampler`, `haydnenthusiasts.org` and
-   `haydn-lowdn` carry any skeleton files. They appear in neither the README Sources table nor any
-   PROPAGATE known-affected list. If they are copies, stamp them with `--at`; if they are not, record
-   them as known non-copies the way `quartet-log` already is.
+3. While here: resolve the fleet repos that appear in neither the README Sources table nor any
+   PROPAGATE known-affected list. If a repo is a copy, stamp it with `--at`; if it is not, record it
+   as a known non-copy the way `quartet-log` already is.
+   - **`quartet-chooser` — already resolved: not a copy.** Verified during Phase 3's dry run: no
+     `sw.js`/`app.js`/`data.js`/`theme.js`/`ping.js`/`pullToRefresh.js` by name, and none of the six
+     fingerprints (`BUMP ON EVERY SHELL CHANGE`, `VER_PREFIX`, `window.Data`, `window.Theme`,
+     `PullToRefresh`, `APP_PAGE`) appear anywhere in the tree. It is an audit *target*, not a
+     downstream copy — record it in PROPAGATE.md's known-non-copies table so the next scan does not
+     re-raise it.
+   - Still open: `boccherini-sampler`, `haydnenthusiasts.org`, `haydn-lowdn`.
 
 **Done when**
 
@@ -337,8 +371,9 @@ something in Phases 1–4 touched a tracked file — find it before merging.
 For reviewing the whole change, independent of the phases:
 
 1. **Requirement 1 — downstream preserved.** I1, I2, I4 pass. This is objective; do not accept prose.
-2. **Requirement 2 — audits other repos.** The quartet-chooser run is in the PR, and it classifies
-   class B without recommending a `V` bump.
+2. **Requirement 2 — audits other repos.** The quartet-chooser run is in the PR, it classifies
+   class B without recommending a `V` bump, and it finds every row of the known-answer table in
+   Phase 3. A run that misses the SVG `og:image` has not earned a pass.
 3. **Requirement 3 — bootstraps new projects.** The scratch-app placeholder grep is empty and
    `sw-lint` + `sw.test.mjs` pass inside it.
 4. **No knowledge lost.** I6's word count, and `references/` renders on GitHub with working links.
@@ -350,7 +385,10 @@ For reviewing the whole change, independent of the phases:
 Deliberately not here, to keep the diff reviewable:
 
 - Rewriting any prose while moving it (Phase 1 is a move, not an edit).
-- Changing `sw.js`, `app.js`, `data.js`, or `theme.js` for any reason.
+- Changing any stamped file (`sw.js`, `app.js`, `data.js`, `theme.js`, `ping.js`,
+  `pullToRefresh.js`) for any reason — see I1.
+- Fixing quartet-chooser, or migrating it off Netlify. Phase 3 audits it to prove the skill works;
+  acting on the findings is that repo's own issue.
 - Publishing to a public marketplace or writing `claude plugin eval` cases — the audience is one
   fleet; revisit only if that changes.
 - Renaming the repo. "pwa-starter" names the least active job, but a rename breaks every stamp's
@@ -364,4 +402,5 @@ Deliberately not here, to keep the diff reviewable:
 | Plugin references a path outside its directory; works locally, breaks on install | Phase 2 review item; test via a real GitHub install, not just `--plugin-dir` |
 | Template instances inherit `plugins/` + `.claude-plugin/` | Phase 4 delete-list, with a scratch-app assertion |
 | Audit skill gives class-A advice to a class-B app | Phase 3 dry runs on one of each |
+| Audit skill classifies by dependency list rather than by output, and writes off a static-HTML SSG as an un-auditable SPA | Class table keys on what reaches the browser; quartet-chooser is the regression case |
 | `/plugin marketplace add owner/repo` shorthand not supported | Phase 2 records the working form; local-path fallback |
