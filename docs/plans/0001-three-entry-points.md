@@ -88,6 +88,39 @@ Cheap, and it is what turns "we kept the downstream relationships" from a hope i
 **Review:** the PR body quotes the baseline summary line (`N up to date, N behind, …`). Without it,
 I2 is unverifiable and the whole "keep downstream relationships" claim is unaudited.
 
+### Baseline as measured (2026-08-21, all 46 account repos enumerated)
+
+```
+4 up to date, 0 behind, 1 pinned, 3 untracked, 0 unusable
+```
+
+**The fleet is fully in sync.** Every stamped copy verified to genuinely carry the post-#9 code
+(`withTimeout`, `isTransientStatus`, `cacheLookup`, `bootable`, `offlineFallback` all present) — the
+stamps are truthful, not merely present.
+
+| Repo · file | State |
+|---|---|
+| `AKM/sw.js` | stamped `@ 3ec3032`, current (`akm-v109`) |
+| `haydn-info-card/web/sw.js` | stamped `@ 3ec3032`, current (`haydn-v16`) |
+| `haydn-info-card/web/app.js` | stamped `@ dd763ca` — which *is* the last `app.js` commit |
+| `quartets.boccherini.org/sw.js` | stamped `@ 3ec3032`, current (`boccherini-v9`) |
+| `gallery-deck/web/public/sw.js` | pinned `@ 2ed87e9`, 7 behind, reason recorded — working as designed |
+| `quartet-log/src/pullToRefresh.js` · `quartets.boccherini.org/app.js` · `gallery-deck/web/public/app.js` | untracked candidates — all three are **deliberate** non-stamps already documented in PROPAGATE.md |
+| `quartet-chooser`, `haydnenthusiasts.org`, `haydn-lowdn`, `boccherini-sampler`, and every other account repo | **not copies** — no skeleton basenames, none of the six fingerprints |
+
+Two problems this baseline exposes, both fixed in Phase 5:
+
+1. **PROPAGATE.md's `#9` known-affected notes are stale in the opposite direction from the one this
+   machinery guards against.** Entry `64b442d` still says `quartets.boccherini.org` "carries the old
+   network-first live branch verbatim and needs the full port" and that `AKM/sw.js` is an "unstamped
+   ancestor-pattern worker … behind three families at once … treat it as a modernization pass." Both
+   were done and stamped; the note was never updated. The tooling catches copies falling behind the
+   doc — nothing catches the doc falling behind the copies.
+2. **The three untracked candidates are permanent false positives.** Each is a documented, correct
+   decision not to stamp, but `check-downstream.py` has no way to record that: `pinned:` lives
+   *inside a stamp*, and a non-copy must not carry a stamp. So every scan, forever, reports three
+   items that are working as intended — the same signal erosion as an unannotated cosmetic commit.
+
 ---
 
 ## Phase 1 — Extract the knowledge from CLAUDE.md
@@ -225,6 +258,12 @@ app", "what's missing vs pwa-starter", "is this installable/offline".
 2. For class B and C, **read the files that generate the `<head>`** — the page template, the SSG
    entry, the build script — and where possible the built output. Say this in the skill: a class-B
    app with no root `index.html` must not be reported as "everything missing."
+3. **Never audit by globbing for filenames.** Absence of `manifest.json` or `sw.js` on disk does not
+   mean absence of a manifest or a service worker: `lobsters-and-lighthouses` builds its manifest at
+   runtime as a Blob URL and inlines its worker (`references/sharing-install.md` cites it as the
+   zero-icon-files trick), so a file-presence scan reports it as having neither and is wrong twice.
+   Grep for the *behavior* — `registerServiceWorker`, `rel="manifest"`, a constructed Blob — then read
+   the code.
 3. Emit the report as a table, worst-first, `✅/⚠️/❌` with **specific evidence** (the missing tag,
    the unversioned cache, the hover-only tooltip) and a rough cost per fix. Lead with share card,
    offline, cache-busting; nitpicks last.
@@ -319,21 +358,32 @@ throughout" rule is what buys project-page portability, and an absolute-path sit
    PROPAGATE.md's own rules: two-way flow (port upstream *first*, let the stamp catch up), stamp only
    whole-file copies, `--at` for an older sync point, `pinned:` with a mandatory reason, and how to
    write a PROPAGATE entry that is an instruction rather than a changelog line.
-2. Give the registry a heartbeat. `check-downstream.py` is the third-most-churned file here and runs
-   only when remembered; the fleet has ~12 web repos while PROPAGATE tracks ~8. Add a scheduled
-   workflow that clones the known copies and runs the checker, opening/updating one issue when
-   anything is behind. Keep it **non-fatal on clone failure** — the repo's own ethos: "no network"
-   must not read as "the fleet is broken."
-3. While here: resolve the fleet repos that appear in neither the README Sources table nor any
-   PROPAGATE known-affected list. If a repo is a copy, stamp it with `--at`; if it is not, record it
-   as a known non-copy the way `quartet-log` already is.
-   - **`quartet-chooser` — already resolved: not a copy.** Verified during Phase 3's dry run: no
-     `sw.js`/`app.js`/`data.js`/`theme.js`/`ping.js`/`pullToRefresh.js` by name, and none of the six
-     fingerprints (`BUMP ON EVERY SHELL CHANGE`, `VER_PREFIX`, `window.Data`, `window.Theme`,
-     `PullToRefresh`, `APP_PAGE`) appear anywhere in the tree. It is an audit *target*, not a
-     downstream copy — record it in PROPAGATE.md's known-non-copies table so the next scan does not
-     re-raise it.
-   - Still open: `boccherini-sampler`, `haydnenthusiasts.org`, `haydn-lowdn`.
+2. **Teach the checker about deliberate non-copies** — the fix for baseline problem 2. `pinned:`
+   cannot express it, because it lives inside a stamp and a non-copy must not carry one. Add a
+   suppression list the checker reads (path globs plus a mandatory reason, mirroring `pinned:`), and
+   report those separately from genuine untracked candidates. Seed it with the three standing cases:
+   `quartet-log/src/pullToRefresh.js` (the ancestor this skeleton's copy was written *from*),
+   `quartets.boccherini.org/app.js` and `gallery-deck/web/public/app.js` (partial adopters that took
+   only the ~59-line version-tag region). Keep discovery-by-fingerprint intact — the point is to
+   silence *known* answers, never to stop looking.
+3. **Add a staleness check for PROPAGATE's own prose** — the fix for baseline problem 1, and the gap
+   nothing currently covers. A "known affected: X needs the full port" line that stays after X is
+   stamped current is worse than no line, because it sends you to re-do finished work. Cheapest
+   version: have the checker cross-reference each entry's named repos against their live stamps and
+   flag any that claims a copy is behind when the scan says it is current.
+4. Give the registry a heartbeat. `check-downstream.py` is the third-most-churned file here and runs
+   only when remembered. Add a scheduled workflow that clones the known copies and runs the checker,
+   opening/updating one issue when anything is behind. Keep it **non-fatal on clone failure** — the
+   repo's own ethos: "no network" must not read as "the fleet is broken."
+   **Declare what it cannot see.** `musiclog` / `viz.runningwithdata.com` is a standing two-way
+   example in PROPAGATE.md, but there is no GitHub repo for it — `runningwithdata.com` is a Jekyll
+   blog with no skeleton files. A CI heartbeat that clones GitHub repos will structurally miss it, so
+   the local `check-downstream.py ~/Dropbox/Code` run stays authoritative and the workflow must say
+   so in its output rather than implying full coverage.
+5. Fleet resolution is **complete as of the Phase 0 baseline** — all 46 account repos enumerated,
+   19 web-shaped ones cloned and scanned. `quartet-chooser`, `haydnenthusiasts.org`, `haydn-lowdn`
+   and `boccherini-sampler` are confirmed **non-copies** (no skeleton basenames, none of the six
+   fingerprints). Record them in PROPAGATE.md's known-non-copies table so future scans stay quiet.
 
 **Done when**
 
@@ -404,3 +454,29 @@ Deliberately not here, to keep the diff reviewable:
 | Audit skill gives class-A advice to a class-B app | Phase 3 dry runs on one of each |
 | Audit skill classifies by dependency list rather than by output, and writes off a static-HTML SSG as an un-auditable SPA | Class table keys on what reaches the browser; quartet-chooser is the regression case |
 | `/plugin marketplace add owner/repo` shorthand not supported | Phase 2 records the working form; local-path fallback |
+
+---
+
+## Appendix — audit backlog
+
+Coarse triage from a marker scan of the 19 web-shaped repos (2026-08-21). **This is a worklist, not
+an audit** — it greps for signals, which is exactly the method Phase 3 step 3 forbids the skill from
+relying on. `lobsters-and-lighthouses` is the proof: it shows `manifest 0 / sw 0` here and in fact has
+both, generated at runtime. Treat every row as "run `/pwa-starter:audit` here", ordered by how much
+the app looks like it would benefit.
+
+| Repo | Shape | Apparent gaps |
+|---|---|---|
+| `haydnenthusiasts.org` | 8 static HTML pages | No manifest, no SW, no `apple-touch-icon`, no dark mode; 1 of 8 pages has `og:image`. The boccherini "before" case again — high value, low risk |
+| `quartet-chooser` | class B SSG | The hand-audited table in Phase 3 — SVG `og:image` fleet-wide, icons-only manifest, no SW |
+| `wtq` | single page + manifest | No `og:image`, no dark mode, no SW (matches `references/history.md`) |
+| `lobsters-and-lighthouses` | 3 pages, Netlify | Has OG + `apple-touch-icon`; **verify the runtime manifest and inlined SW by reading, not globbing**; no dark mode |
+| `haydn-lowdn` · `maestoso-127` · `nh_tax_map` · `haydn-canon` | one-page viz | No PWA metadata at all — decide per app whether any is meant to be installed |
+| `somerville-typemap` | one-page viz | Dark mode only; nothing else |
+| `boccherini-sampler` · `github-month-review` | one/two pages | Partial OG; no manifest, no SW |
+| `cjs-archive` | 361-page static archive | 350 pages carry `apple-touch-icon` and there is a manifest — likely fine; confirm the share card |
+| `AKM` · `haydn-info-card` · `quartets.boccherini.org` · `quartet-log` · `gallery-deck` | already downstream | Not audit targets — they *are* the common core. Keep them in the propagate lane |
+
+Order of attack: `haydnenthusiasts.org` first (biggest gap, real audience), then `wtq`, then
+`quartet-chooser`. The one-page vizzes are probably fine as pages and should not be forced into
+being apps — "does anyone open this on a phone twice?" is the filter.
