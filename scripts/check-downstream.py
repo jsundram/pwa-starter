@@ -193,7 +193,7 @@ def main():
         return stamp_file(args.stamp, args.at)
 
     notes = read_propagate()
-    behind, candidates, ok, broken, pinned = [], [], 0, [], []
+    behind, candidates, ok, broken, pinned, discovered = [], [], 0, [], [], []
 
     for path in walk(args.paths or [os.path.dirname(ROOT)]):
         fname = os.path.basename(path)
@@ -201,9 +201,10 @@ def main():
         m = STAMP.search(text)
         if not m:
             # Unstamped: is it recognizably ours? Read the whole file for the fingerprint,
-            # since a copy may have moved things around.
+            # since a copy may have moved things around. Discovery-only hits get their own
+            # bucket — the generic one ends in a --stamp suggestion these must always refuse.
             if FINGERPRINTS[fname] in open(path, encoding="utf-8", errors="replace").read():
-                candidates.append(path)
+                (discovered if fname in DISCOVER_ONLY else candidates).append(path)
             continue
         if fname in DISCOVER_ONLY:
             # A hand-added stamp here would always read clean (`git log -- <name>` over a
@@ -251,8 +252,13 @@ def main():
             print(f"  {rel(path)}")
         print("  → adopt with: python3 scripts/check-downstream.py --stamp <file>")
 
+    if discovered:
+        print("\nDiscovery-only regions (tracked by hand in PROPAGATE.md — do not stamp):")
+        for path in discovered:
+            print(f"  {rel(path)}")
+
     print(f"\n{ok} up to date, {len(behind)} behind, {len(pinned)} pinned, "
-          f"{len(candidates)} untracked, {len(broken)} unusable")
+          f"{len(candidates)} untracked, {len(discovered)} discovery-only, {len(broken)} unusable")
     return 1 if behind or broken else 0
 
 
