@@ -40,12 +40,20 @@ recur, and neither should be stamped:
 
 | Flagged | Why it isn't a copy |
 |---|---|
-| `quartet-log/src/app.js` (a.k.a. `viz.runningwithdata.com/musiclog`) | 573-line ES-module `export class App` vs. this skeleton's 178-line classic script. Shares only `VER_PREFIX`, the fingerprint. |
+| `quartet-log/src/updateChecker.js` (a.k.a. `viz.runningwithdata.com/musiclog`) | The version-tag region, split out of its `app.js` (the "split it into its own file" move prescribed below) — but an independent implementation, not the vendored block: it reads a build-emitted `version.json` instead of regex-parsing `sw.js` source, and compares content-hash `V` strings for equality (no numeric tail to rank). Discovery-only in `check-downstream.py` — its basename isn't a file we own, so it can't be stamped; its `app.js` no longer contains the fingerprint at all. |
 | `quartet-log/src/pullToRefresh.js` | Independent implementation, own prose and code — and it's the **ancestor**: this skeleton's version was written from it. |
 
 quartet-log is the sharpest case of the two-way flow above: it originated the cache-first paint
 (`3322370`) and the empty-payload guard (`fd71bde`) that became `ddd9ab8` here, and already has both.
 Reporting it "behind" that commit is backwards. Review it by hand.
+
+Its 2026-08 architecture-hardening pass adds two standing **pull-back candidates**: the
+`version.json` probe (its codegen writes `{"version":…}` next to `sw.js`, and the update check reads
+that — no shared-V-regex contract, no parsing `sw.js` source) and the `gen_sw.mjs` codegen itself
+(the SHELL list generated from the deploy directory's actual contents, and `V` a content hash over
+every precached asset, so any asset change — icon, manifest, data — moves it; no hand-bumped
+constant). Both presume a build step, so they'd land here as optional `scripts/` codegen, not as
+changes to the no-build deployed files.
 
 **Partial adopters** — vendored a *region*, not the file:
 
@@ -113,8 +121,10 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   behind **three** families at once — the ungated `c.put` (2ed87e9), the #7 offline family
   (undefined-resolving catch, bare `addAll`-era precache), and this one — and its venue use case
   (weak signal at a concert hall) is the lie-fi scenario verbatim; treat it as a modernization
-  pass, not a patch. `musiclog` has an independent SW with the same unbounded network-first
-  navigations — hand-port per its standing rule, don't stamp. `gallery-deck` stays pinned (no
+  pass, not a patch. `musiclog` has hand-ported this family (bounded warm/cold
+  timeouts, opaqueredirect pass-through, never-undefined terminal fallback — its `static/sw.js`
+  cites this sha) while deliberately staying network-first: its content-hashed `V` makes reload
+  the natural freshness path, so the fix there is the bounds, not the strategy. `gallery-deck` stays pinned (no
   real offline mode; note lie-fi over its tailnet still blanks navigations — a bounded fallback
   would at least fail visibly if it ever unpins). (pwa-starter#9)
 
@@ -148,7 +158,11 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   boccherini-v9) — don't re-port it; just re-stamp its provenance line at dd763ca. Downstream
   copies of `scripts/sw-lint.py` (boccherini's `tools/sw_lint.py`) should also pick up the
   comment-safe SHELL parser + the three new checks (paths exist, no cross-origin, numeric tail).
-  (pwa-starter#7)
+  `musiclog` has hand-ported the load-bearing constraint (its `ensureShell()` tops up missing
+  entries, verifies, and gates the collect on a verified-complete shell) — adapted, not copied:
+  its content-hash `V` has no numeric tail to order generations by, so the collect keys on
+  completeness instead of direction, with old generations serving via `caches.match()` until the
+  new shell completes. (pwa-starter#7)
 
 - 2ed87e9  Gate every cache write on `resp.ok` via `cachePut()` — a 404/502 is a *resolved* fetch,
   so the old ungated `c.put()` overwrote a good cached file with an error body that then survived
@@ -161,7 +175,10 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   committed `.json` were blocking first paint on a network round trip for it on every cold start,
   even with a good cached copy. Move `json` out of the `live` regex and add the SWR branch. Only
   worth carrying if the app fetches JSON at boot — `haydn-info-card` (`opera.json`, 107 KB) and
-  `quartets.boccherini.org` (`peters.json`/`parts.json`/`opera.json`) both do.
+  `quartets.boccherini.org` (`peters.json`/`parts.json`/`opera.json`) both do. `musiclog` has
+  hand-ported it (boot blocks on its work catalogs; its revalidation writes under the bare
+  pathname so versioned `?v=<hash>` requests replace the precached entry instead of piling up
+  per-hash copies that lose every `ignoreSearch` match).
 
 ## data.js
 
