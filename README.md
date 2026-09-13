@@ -45,6 +45,7 @@ assets/         icon.svg + og.svg (sources) → run the scripts to rasterize
 scripts/        make-icons.sh · make-og.sh · sw-lint.py · og-lint.py · analytics.gs (backend reference)
 tools/          setup-environment.sh — check/install the build toolchain (run by a SessionStart hook)
 .githooks/      pre-commit that runs sw-lint + og-lint (enable: git config core.hooksPath .githooks)
+.nojekyll       keeps GitHub Pages from running Jekyll over the repo (presence is the whole content)
 ```
 
 ## Toolchain
