@@ -195,3 +195,24 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   `applyUpdate()` to keep that second paint from yanking the page. Those are optional enhancements —
   but if you port them, **port the guard first**: cache-first is what turns the empty-payload bug from
   cosmetic into app-wedging.
+
+---
+
+## .nojekyll
+
+- f54b770  **Add an empty `.nojekyll` to your repo root.** Without it GitHub Pages builds
+  the repo with Jekyll, which renders every markdown file in it through Liquid — `CLAUDE.md`,
+  `PROPAGATE.md`, any note you keep — and excludes every path beginning with `_` from the output.
+  Neither is anything a skeleton app asked for, and both fail in the same direction: silently, at
+  deploy time, days after the commit. quartet-composers is the worked example. `dce5a99` there
+  documented a parse bug by quoting the literal it had misread, "as the literal `` {{ ``", and an
+  unterminated `{{` is a Liquid PARSE error rather than a bad substitution — so the build died,
+  `pages build and deployment` went red, and the site served its last good commit for two days
+  while two merges landed on top of it. Nobody noticed until a reader said the version tag looked
+  old.
+  **Presence is the whole content**, so this one cannot carry a provenance stamp — an empty file
+  has nowhere to put a comment, and `check-downstream.py` finds copies by stamp. Check it with
+  `ls -a`, not with the scan. Adding it is safe wherever the app is the tree it publishes: no
+  `_config.yml`, no front matter, no Liquid in `index.html`. If a downstream DOES want Jekyll to
+  render something, it wants a `_config.yml` instead — and then it owns an `exclude:` list that
+  every new doc has to be added to, which is the trade this file exists to warn about.

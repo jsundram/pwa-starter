@@ -217,6 +217,11 @@ live regions, WCAG AAA) unless you know a user needs it.
   it's exempt from the no-uncached-CDN rule precisely because it fails silently offline
 
 **Deploy**
+- [ ] `.nojekyll` at the repo root — Pages runs Jekyll otherwise, which renders every `.md` in the
+  repo through Liquid and drops every path starting with `_`. A skeleton app wants neither: an
+  unterminated `{{` in a developer note is a Liquid PARSE error, so a sentence in CLAUDE.md can
+  fail the build and freeze the site on its last good deploy. That is not hypothetical — see
+  PROPAGATE.md
 - [ ] Relative paths throughout (works at `user.github.io/repo/`, not just a root domain)
 - [ ] Opened at the real URL **online once** to prime the SW cache, then Add to Home Screen
 - [ ] `.gitignore` keeps PII / large caches / generated previews out of the repo
