@@ -12,6 +12,18 @@ cosmetic)" for commits that aren't listed, so silence here is meaningful.
 Format — one bullet per commit, short sha first, under a heading per file:
 
 ```
+## CLAUDE.md
+
+- PENDING  a `Where a thing goes` section near the top: rules here, history in the commit and the
+  issue, anything mechanical in a check — and a number in the file is a RECORD or it is absent.
+  Downstream should adopt the section into its own CLAUDE.md. It states no number, so it can be
+  copied verbatim. It is guidance rather than a vendored file, so there is no stamp to match.
+
+  Why it is worth carrying: quartet-composers found 71 stale claims in its comments and docs, most
+  of them narration of incidents that the commits already recorded better, and a pass that cut the
+  file 26% was fully undone within a day because nothing named where the prose was supposed to go
+  instead. The section is the rule that came out of that.
+
 ## sw.js
 - 0000000  what changed, and what downstream must do about it (#issue)
 ```
