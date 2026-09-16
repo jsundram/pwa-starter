@@ -14,7 +14,7 @@ Format — one bullet per commit, short sha first, under a heading per file:
 ```
 ## CLAUDE.md
 
-- PENDING  a `Where a thing goes` section near the top: rules here, history in the commit and the
+- c8a15ca  a `Where a thing goes` section near the top: rules here, history in the commit and the
   issue, anything mechanical in a check — and a number in the file is a RECORD or it is absent.
   Downstream should adopt the section into its own CLAUDE.md. It states no number, so it can be
   copied verbatim. It is guidance rather than a vendored file, so there is no stamp to match.
