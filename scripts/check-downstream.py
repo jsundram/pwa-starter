@@ -46,15 +46,20 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Files this skeleton owns. A downstream copy of one of these is what we track.
-# The fingerprint is a string distinctive enough to recognize a copy that has drifted
-# far from ours but is still recognizably descended from it.
+# Each entry is a TUPLE of fingerprints — strings distinctive enough to recognize a copy that has
+# drifted far from ours but is still recognizably descended from it. ANY one of them matching is
+# enough, and that is the whole point of the tuple: a single fingerprint is a single point of
+# failure, and it failed silently. `app.js` was fingerprinted on "VER_PREFIX" alone, so AKM's copy
+# — which inlines the prefix as /^akm-v/ and keeps no such constant — was invisible to every scan
+# while carrying the #17 bug. A forgotten repo surfacing itself is this script's one job; name
+# several independent landmarks per file so one local rename can't switch it off. (#17)
 SHARED = {
-    "sw.js": "BUMP ON EVERY SHELL CHANGE",
-    "data.js": "window.Data",
-    "theme.js": "window.Theme",
-    "app.js": "VER_PREFIX",
-    "ping.js": "APP_PAGE",          # not the localStorage key — that's meant to be renamed
-    "pullToRefresh.js": "PullToRefresh",
+    "sw.js": ("BUMP ON EVERY SHELL CHANGE", "ensureShell", "offlineFallback"),
+    "data.js": ("window.Data", "writeCache", "revalidate"),
+    "theme.js": ("window.Theme", "invalidateColorCache", "getCssColor"),
+    "app.js": ("VER_PREFIX", "requestShellTopUp", "ensure-shell"),
+    "ping.js": ("APP_PAGE", "URL_"),   # not the localStorage key — that's meant to be renamed
+    "pullToRefresh.js": ("PullToRefresh",),
 }
 
 # Tracked regions living under a DIFFERENT basename downstream. Discovery only: there is
@@ -64,7 +69,7 @@ SHARED = {
 # partial-adopters note prescribes); without this entry the region silently vanishes from
 # the scan the moment a fingerprint leaves a basename we own.
 DISCOVER_ONLY = {
-    "updateChecker.js": "VER_PREFIX",
+    "updateChecker.js": ("VER_PREFIX", "forceUpdate"),
 }
 FINGERPRINTS = {**SHARED, **DISCOVER_ONLY}
 
@@ -200,10 +205,12 @@ def main():
         text = head(path)
         m = STAMP.search(text)
         if not m:
-            # Unstamped: is it recognizably ours? Read the whole file for the fingerprint,
-            # since a copy may have moved things around. Discovery-only hits get their own
-            # bucket — the generic one ends in a --stamp suggestion these must always refuse.
-            if FINGERPRINTS[fname] in open(path, encoding="utf-8", errors="replace").read():
+            # Unstamped: is it recognizably ours? Read the whole file and accept ANY of the
+            # file's fingerprints, since a copy may have moved things around or renamed the one
+            # landmark we happened to pick. Discovery-only hits get their own bucket — the
+            # generic one ends in a --stamp suggestion these must always refuse.
+            body = open(path, encoding="utf-8", errors="replace").read()
+            if any(fp in body for fp in FINGERPRINTS[fname]):
                 (discovered if fname in DISCOVER_ONLY else candidates).append(path)
             continue
         if fname in DISCOVER_ONLY:

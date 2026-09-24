@@ -14,9 +14,9 @@ sw.js precaches the app SHELL. Six mistakes are cheap to catch here and expensiv
    still answering via the whole-store fallback. (#7)
 3. A cross-origin SHELL entry. The fetch handler passes other origins straight through, so the
    entry would be cached but never served — vendor the file locally instead.
-4. A V without a numeric tail. The tail orders generations for sw.js's collect and app.js's
-   checkVer() ranking; a non-numeric V makes collection silently stop, no error, no symptom,
-   until caches pile up. Rename the stem freely — keep the digits.
+4. A V without a numeric tail. The tail is what makes sw.js's collect DIRECTIONAL (delete only
+   strictly older generations); a non-numeric V makes collection silently stop, no error, no
+   symptom, until caches pile up. Rename the stem freely — keep the digits.
 5. app.js's VER_PREFIX not matching V's stem. checkVer() uses that prefix to decide whether a
    worker is installed at all, so a renamed stem on one side only makes the version tag go blank
    (no cache matches) or read a sibling app's caches — silently, since nothing throws. (#7)
@@ -64,9 +64,9 @@ def main():
     problems = []
 
     if v is not None and not re.search(r"\d+$", v):
-        problems.append(f'V is "{v}", which has no numeric tail. The tail orders cache '
-                        "generations (sw.js's collect, app.js's ranking) — rename the stem "
-                        "freely, but keep the digits.")
+        problems.append(f'V is "{v}", which has no numeric tail. The tail is what makes sw.js\'s '
+                        "collect directional (older generations only) — rename the stem freely, "
+                        "but keep the digits.")
 
     # Downstream copies don't always vendor app.js (some graft only the version-tag region, some
     # skip it), so a missing file or a missing declaration is silence, not a problem.

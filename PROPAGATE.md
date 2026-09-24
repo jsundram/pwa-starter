@@ -64,8 +64,10 @@ changes to the no-build deployed files.
 
 A file-level stamp on these is worse than none: it would report them behind every `app.js` commit
 regardless of whether the change touched the ~20 lines they actually took, and `app.js` is the file
-most likely to churn. The version-tag block also has its own natural sync signal — `VER_PREFIX` must
-match `sw.js`'s `V` prefix — so it doesn't need this. **If a region gets big or subtle enough to
+most likely to churn. The version-tag block also has its own natural sync signal — `APP_V` must
+*equal* `sw.js`'s `V`, and `VER_PREFIX` must match its stem, both enforced by `sw-lint.py` — so it
+doesn't need this. That signal only fires on a copy that kept those names, though: `AKM` renamed
+its way out of both and went unnoticed through `#17`. **If a region gets big or subtle enough to
 warrant tracking, split it into its own file first**, then stamp that.
 
 **Stamping an app you didn't just sync?** Use `--at <sha>` with the commit it actually matches, not
@@ -148,6 +150,11 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
     `requestShellTopUp()` on load/foreground/`controllerchange`, `checkVer()` ranking by numeric
     tail among *non-empty* caches, anchored version parse. Without the ranking fix the tag lies
     the moment two generations coexist — which the SW change makes a normal state.
+    **SUPERSEDED in part by `cef3cd2` (the `## app.js` section below): the ranking and the
+    non-empty filter are gone.** They were treating a symptom — a cache key can't report what the
+    page is running at all — and `APP_V` settles it at the source. If you are porting both entries
+    at once, skip straight to the later one; `requestShellTopUp()` and the anchored parse still
+    stand.
   - `offlineFallback()` needs a per-app constant block (title, copy, palette); `BOOT_DEPS` is
     per-app judgment — list only what each document *dies* without.
   Known affected: `haydn-info-card` ported + verified (its `0075239`, stamped @ dd763ca).
@@ -180,6 +187,8 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   pathname so versioned `?v=<hash>` requests replace the precached entry instead of piling up
   per-hash copies that lose every `ignoreSearch` match).
 
+---
+
 ## app.js
 
 - cef3cd2  **The version tag compares `APP_V` — the running bundle — instead of the Cache Storage
@@ -199,26 +208,60 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   new cache is still the empty placeholder `ensureShellOnce()` opens, which is precisely the
   stranded device it was written to protect. `scripts/sw-lint.py` check 6 enforces the
   `APP_V`/`V` pair; carry that too, or the contract is prose again.
-  Known affected — all of these read `installed` from `caches.keys()` *and* ship a worker that
-  calls `skipWaiting()` + `clients.claim()`, which is the full precondition:
-  `quartets.boccherini.org/app.js:47` and `lissajous-tuner/app.js:663` carry the current block
-  verbatim and need the straight port. `gallery-deck/web/public/app.js` carried the older
-  `find()` form, hit this first, and is fixed there at `gd-v24` — it is where the bug was found.
-  `quartet-log/src/updateChecker.js:38` has it too, despite already using the `version.json`
-  probe this file lists as a pull-back candidate: that probe improves how `latest` is obtained
-  and is **orthogonal** to this bug, which is on the `installed` side — its own comment still
-  says "the installed version is just the `ql-` cache key". It is discovery-only here, so it
-  needs a hand-carried fix, and its content-hash `V` has no numeric tail to rank, which makes the
-  boolean gate the natural shape there anyway. (pwa-starter#17)
+  Known affected — the full precondition is *reads `installed` from `caches.keys()`* **and** *ships
+  a worker that calls `skipWaiting()` + `clients.claim()`*, and every copy below was checked
+  against both:
 
-  The **same commit** adds a README note on what the host must do: serve the shell with a
-  validator and no heuristic freshness (`Cache-Control: no-cache` + ETag). Not a code change, but
-  it is the second, independent cause of the identical symptom — a self-hosted app that sends no
-  `Cache-Control` lets the browser invent a lifetime from `Last-Modified` and answer the
-  network-first fetch from the HTTP cache without contacting the server, so the version reads
-  current while the bundle goes stale. Only downstreams that host their own shell need it;
-  GitHub Pages already sends sane headers. `gallery-deck` hit both causes at once (its shell is
-  served by Starlette's `StaticFiles`, which sends none).
+  | Copy | State |
+  |---|---|
+  | `quartets.boccherini.org/app.js:45` | current block verbatim — straight port |
+  | `lissajous-tuner/app.js:661` | current block verbatim, but see the note below |
+  | `quartet-composers/app.js:1308` | current block verbatim — straight port |
+  | `haydn-info-card/web/app.js:46` | current block verbatim — straight port |
+  | `AKM/app.js:1215` | independent `SWVER`/`NEWVER` variant, same flaw — hand-carried |
+  | `gallery-deck/web/public/app.js` | **fixed** at `gd-v24`; where the bug was found |
+  | `quartet-log/src/updateChecker.js:38` | independent implementation, same flaw — hand-carried |
+
+  Two of these need more than a copy-paste. `lissajous-tuner` **already has the value it needs**:
+  `build.js` carries a deploy-stamped `.v`, loaded by the same document load as `app.js`, so it is
+  a genuine running-bundle marker — its own comment already admits the gap ("they agree unless the
+  cache is mid-swap"). Change which value it compares rather than adding a constant. And
+  `quartet-log` has the flaw despite already using the `version.json` probe this file lists as a
+  pull-back candidate: that probe improves how `latest` is obtained and is **orthogonal** to this,
+  which is on the `installed` side — its own comment still says "the installed version is just the
+  `ql-` cache key". It is discovery-only here, so it needs a hand-carried fix, and its content-hash
+  `V` has no numeric tail to rank, which makes the boolean gate the natural shape there anyway.
+
+  `AKM` is the cautionary one: it was invisible to `check-downstream.py` for this entire bug's
+  lifetime, because `app.js` was fingerprinted on the single string `VER_PREFIX` and AKM's copy
+  inlines the prefix as `/^akm-v/`. The same commit makes every fingerprint a *tuple* — see the
+  `scripts/` note below. (pwa-starter#17)
+
+  The **same commit** adds a README note on what the host must do: don't let the shell be served
+  with **heuristic freshness**. Not a code change, but it is the second, independent cause of the
+  identical symptom — a host that sends no `Cache-Control` lets the browser invent a lifetime from
+  `Last-Modified` and answer from the HTTP cache without contacting the server, so the version
+  reads current while the bundle goes stale. Only the **cold** path is exposed (the shell is served
+  cache-first, and the per-file precache uses `cache: "reload"`): the live branch's bounded network
+  fallback on a first run or an evicted shell, plus whatever `cachePut()` stores. Only downstreams
+  that host their own shell need it — GitHub Pages sends `max-age=600` + ETag, an explicit lifetime,
+  which is enough to stop the guessing. `gallery-deck` hit both causes at once (its shell is served
+  by Starlette's `StaticFiles`, which sends no `Cache-Control` at all).
+
+---
+
+## scripts/
+
+Not vendored files — but `check-downstream.py` is how you find out whether the entries above ever
+landed, so a gap in it is a gap in all of them.
+
+- cef3cd2  **Fingerprints are now a tuple per file, matched with `any()`.** A single fingerprint is
+  a single point of failure, and it failed silently: `app.js` was recognized only by the literal
+  `VER_PREFIX`, so `AKM/app.js` — which inlines its prefix as `/^akm-v/` — never appeared in any
+  scan, stamped or candidate, while carrying the `#17` bug. Widening it surfaced four previously
+  invisible copies (`AKM/app.js`, `AKM/ping.js`, and quartet-log's two generated `sw.js`). If you
+  maintain your own copy of this script, name several independent landmarks per file so one local
+  rename can't switch discovery off. (pwa-starter#17)
 
 ---
 

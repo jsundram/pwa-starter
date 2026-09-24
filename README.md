@@ -77,17 +77,25 @@ Then read [`CLAUDE.md`](CLAUDE.md) for the full checklist and the reasoning behi
 
 ### What the host has to do
 
-One requirement the skeleton can't enforce from inside the files: **serve the shell with a
-validator and no heuristic freshness** — `Cache-Control: no-cache` plus an ETag or Last-Modified.
-GitHub Pages already does. A self-hosted app may not: send *no* `Cache-Control` at all and the
-browser is free to invent a lifetime from `Last-Modified` (roughly 10% of the file's age) and
-answer `sw.js`'s network-first fetch out of the HTTP cache without ever contacting the server. The
-worker script itself is always fetched fresh, so the version tag reads current while the bundle it
-describes goes stale — an update that silently never lands. `no-cache` means *revalidate*, not
-*don't store*; with a validator it costs a 304.
+One requirement the skeleton can't enforce from inside the files: **the shell must not be served
+with heuristic freshness.** Send *no* `Cache-Control` at all and the browser is free to invent a
+lifetime from `Last-Modified` — roughly 10% of the file's age, so an old file can be cached for
+weeks — and answer out of the HTTP cache without ever contacting the server. The worker script
+itself is always fetched fresh, so the version tag reads current while the bundle it describes
+goes stale: an update that silently never lands, and a second, independent cause of #17's symptom.
 
-`sw.js`'s per-file precache already fetches with `cache: "reload"`, so the precache path is covered
-either way. This is about everything the fetch handler serves afterward.
+Which requests this reaches: the shell is served **cache-first**, so a warm load never touches the
+network at all, and the per-file precache fetches with `cache: "reload"`, which bypasses the HTTP
+cache outright. What's exposed is the live branch's **bounded network fallback** — a first run, or
+a shell iOS evicted — plus anything `cachePut()` stores. Narrow, but it is the cold path, i.e. the
+one that rebuilds a device from nothing.
+
+The fix is an explicit header. `Cache-Control: no-cache` plus an ETag is the strong form —
+`no-cache` means *revalidate*, not *don't store*, so with a validator it costs a 304. **GitHub
+Pages sends `Cache-Control: max-age=600` with an ETag**, which is weaker but sufficient: an
+explicit lifetime stops the browser guessing, and the window is a bounded 10 minutes. A
+self-hosted app is the one to check — Starlette's `StaticFiles`, for instance, sends no
+`Cache-Control` at all.
 
 ## Sources
 
