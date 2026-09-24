@@ -263,7 +263,7 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
   maintain your own copy of this script, name several independent landmarks per file so one local
   rename can't switch discovery off. (pwa-starter#17)
 
-- e8a1d31  **The three `scripts/` files are tracked now, and `SHARED` carries each file's path
+- 854d957  **The three `scripts/` files are tracked now, and `SHARED` carries each file's path
   here.** `sw-lint.py`, `og-lint.py` and `sw.test.mjs` are vendored like everything else and were
   never in `SHARED`, so the walk never yielded them — downstream copies have been carrying
   `pwa-starter: sw-lint.py @ <sha>` stamps that **nothing read**. Adding them exposed the second
