@@ -21,9 +21,20 @@ SW = 'const V = "%s";\nconst SHELL = ["./", "./index.html", "./styles.css", "./a
 
 fails = []
 
+# HERMETIC GIT. The throwaway repos would otherwise inherit ~/.gitconfig, and a developer with
+# commit.gpgsign = true (common) has no signing key for "t <t@t>" — the first commit dies and
+# takes the whole suite with it, before case 1. gpg.format = ssh, a global core.hooksPath and a
+# commit template do the same. CI never sees it; the pre-commit hook swallows stderr, so locally
+# it would print "(warning only — sw-lint --base tests failed)" on every commit forever, pointing
+# at a lint that is fine. Blanking both config scopes fixes the whole class rather than the three
+# settings we thought of.
+GIT_ENV = {**os.environ,
+           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+           "GIT_TERMINAL_PROMPT": "0"}
+
 
 def git(repo, *a):
-    r = subprocess.run(("git",) + a, cwd=repo, capture_output=True, text=True)
+    r = subprocess.run(("git",) + a, cwd=repo, capture_output=True, text=True, env=GIT_ENV)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(a)}: {r.stderr.strip()}")
     return r.stdout
@@ -53,7 +64,7 @@ def new_repo(tmp, v="app-v32"):
 
 def run(repo, ref="main"):
     r = subprocess.run([sys.executable, LINT, "--base", ref], cwd=repo,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, env=GIT_ENV)
     return r.returncode, r.stdout.strip()
 
 
@@ -154,6 +165,48 @@ with tempfile.TemporaryDirectory() as tmp:
     case("dropping a SHELL entry without a bump fails", code, 1,
          out.splitlines()[-1].strip() if out else "")
 
+    # A DIRECTORY entry names the document it serves. git emits "docs/index.html", never "docs/",
+    # so an un-normalized comparison silently matches nothing — and "./docs/" is a legitimate
+    # shape, the same one the skeleton uses for "./" and "./usage/". Upstream this was masked by
+    # "./usage/index.html" also being listed; a downstream that lists only the directory got
+    # caught by the staged check and waved through on the merge.
+    repo = new_repo(tmp)
+    write(repo, "sw.js", 'const V = "app-v32";\nconst SHELL = ["./", "./docs/"];\n')
+    os.mkdir(os.path.join(repo, "docs"))
+    write(repo, os.path.join("docs", "index.html"), "<p>a\n")
+    commit(repo, "shell is directory entries only")
+    git(repo, "checkout", "-q", "-b", "b")
+    write(repo, os.path.join("docs", "index.html"), "<p>b\n")
+    commit(repo, "edit the document a directory entry serves, no bump")
+    code, out = run(repo)
+    case("a directory SHELL entry still catches an edit to its document", code, 1,
+         out.splitlines()[-1].strip() if out else "normalization missing")
+
+    # The bare scope root is the same case one level up: "./" means index.html.
+    repo = new_repo(tmp)
+    write(repo, "sw.js", 'const V = "app-v32";\nconst SHELL = ["./"];\n')
+    write(repo, "index.html", "<p>a\n")
+    commit(repo, "shell is just the scope root")
+    git(repo, "checkout", "-q", "-b", "b")
+    write(repo, "index.html", "<p>b\n")
+    commit(repo, "edit index.html, no bump")
+    code, out = run(repo)
+    case('a bare "./" entry catches an edit to index.html', code, 1,
+         out.splitlines()[-1].strip() if out else "normalization missing")
+
+    # --- COULD NOT RUN IS NOT A PASS -------------------------------------------------------------
+    # An unreadable SHELL block yields an empty list, and every comparison against an empty list
+    # succeeds. That is the one outcome the check's own comment says it will never produce.
+    repo = new_repo(tmp)
+    write(repo, "sw.js", "const V = \"app-v32\";\nconst SHELL = SHELL_FROM_BUILD;\n")
+    commit(repo, "shell list the parser cannot read")
+    git(repo, "checkout", "-q", "-b", "b")
+    write(repo, "styles.css", "body{z}\n")
+    commit(repo, "shell edit under an unreadable SHELL")
+    code, out = run(repo)
+    case("an unreadable SHELL is reported, not passed over", code, 1,
+         out.splitlines()[-1].strip() if out else "passed silently")
+
     # --- WHY THE TOUCHED SET COMES FROM THE MERGE BASE -------------------------------------------
     # main moves on with a shell change of its own. Diffed against main's TIP, that edit comes back
     # as a file this branch "touched" (in reverse), and a branch that changed nothing but README
@@ -182,7 +235,7 @@ with tempfile.TemporaryDirectory() as tmp:
     case("...and names the fix", "fetch-depth" in out, True)
 
     code = subprocess.run([sys.executable, LINT, "--base"], cwd=repo,
-                          capture_output=True, text=True).returncode
+                          capture_output=True, text=True, env=GIT_ENV).returncode
     case("--base with no ref is an error, not a silent pass", code, 1)
 
     # --- THE SHIPPED SCRIPT AGREES WITH THE SHIPPED sw.js ----------------------------------------

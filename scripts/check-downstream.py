@@ -168,7 +168,15 @@ def commits_since(sha, fname):
     """
     if sh("git", "cat-file", "-e", sha + "^{commit}").returncode != 0:
         return None, f"unknown commit {sha} — not in this repo (rebased? typo?)"
-    path = PATHS.get(fname) or fname
+    # The NAME in a stamp is untrusted text — people write these by hand, and a copy may have
+    # renamed the file. Falling back to it as a pathspec re-opens the exact hole the path keying
+    # closes: `git log <sha>..HEAD -- service-worker.js` exits 0 with no output, so the copy is
+    # counted up to date and never reported again. Unknown name => broken, not clean.
+    path = PATHS.get(fname)
+    if path is None:
+        return None, (f'stamp names "{fname}", which isn\'t a file this skeleton owns — git would '
+                      "read it as a pathspec matching nothing and this copy would report CLEAN "
+                      "forever. Fix the stamp to one of: " + ", ".join(sorted(SHARED)))
     r = sh("git", "log", "--format=%h\t%s", f"{sha}..HEAD", "--", path)
     if r.returncode != 0:
         return None, r.stderr.strip()
@@ -211,8 +219,18 @@ def stamp_file(path, at=None):
     if STAMP.search(body[:4000]):
         sys.exit(f"{path} is already stamped — edit the sha by hand if you mean to re-adopt it")
     comment = "#" if fname.endswith((".py", ".sh")) else "//"
+    stamp = f"{comment} pwa-starter: {fname} @ {sha}\n"
+    # BELOW a shebang, never above it. The kernel honours #! on line 1 only, so stamping above one
+    # silently turns an executable script into a /bin/sh error — and three of the tracked scripts
+    # ship chmod +x. Never bit us while every SHARED entry was a plain .js module; the scripts/
+    # entries are the first with a shebang. The reader scans HEAD_LINES, so line 2 is fine.
+    if body.startswith("#!"):
+        first, _, rest = body.partition("\n")
+        body = f"{first}\n{stamp}{rest}"
+    else:
+        body = stamp + body
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"{comment} pwa-starter: {fname} @ {sha}\n{body}")
+        f.write(body)
     print(f"stamped {path} @ {sha}")
 
 

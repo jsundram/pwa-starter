@@ -77,6 +77,41 @@ def shell_entries(src):
     return [s for s in re.findall(r'//[^\n]*|"([^"]+)"', m.group(1)) if s]
 
 
+def shell_paths(src):
+    """SHELL entries as repo-relative paths — the shape `git diff --name-only` emits.
+
+    Normalizes the DIRECTORY form ("./", "./usage/") to the document it serves. Both V-bump checks
+    compare SHELL against a list of changed files from git, and git never emits "usage/" — so a
+    SHELL that lists only "./docs/" (a legitimate shape; it is the form this skeleton itself uses
+    for "./" and "./usage/") was invisible to both of them. Upstream that was masked by
+    "./usage/index.html" being listed explicitly as well.
+
+    The existence check in main() has always normalized this way; the touched-set comparisons did
+    not, which meant the two halves of the same file disagreed about what a shell entry IS.
+    Cross-origin entries drop out — they can't be repo paths, and they're check 3's business.
+    """
+    out = set()
+    for e in shell_entries(src):
+        if "://" in e:
+            continue
+        p = e.lstrip("./")
+        if not p or p.endswith("/"):
+            p += "index.html"
+        out.add(p)
+    return out
+
+
+# "The SHELL list could not be read" must never resolve to "nothing to check". An unparseable
+# block (a SHELL spread from a constant, a nested bracket, a reformat the non-greedy regex reads
+# short) yields an empty list, and every comparison against an empty list passes. That is the same
+# "a check that passes when it could not run" failure the --base block commits against below, and
+# it matters most in exactly the case this whole file is being synced for: six downstream copies
+# whose service workers are shaped differently from ours.
+NO_SHELL = ("could not read a SHELL list out of sw.js — the parser expects `const SHELL = [ … ]` "
+            "with string literals. Every shell comparison would otherwise run against an EMPTY "
+            "list and report success, so this reports instead.")
+
+
 # Check 7. The hook cannot ask this: it sees one commit against its parent, so a branch that bumps
 # v32 -> v33 from a base that has since become v33 looks correct at every step and still merges to
 # a net delta of zero. CI has both sides.
@@ -109,8 +144,9 @@ def base_check(ref):
 
     # The UNION of both SHELL lists, because DROPPING an entry is itself a shell change: clients
     # that already cached it keep serving it out of the old generation until V moves.
-    shell = {e.lstrip("./") for src in (head.stdout, base.stdout)
-             for e in shell_entries(src) if "://" not in e and e.strip("./")}
+    shell = shell_paths(head.stdout) | shell_paths(base.stdout)
+    if not shell:
+        return [NO_SHELL]
     diff = sh("git", "diff", "--name-only", mb, "HEAD")
     touched = sorted(set(diff.stdout.split()) & shell)
     if not touched:
@@ -157,6 +193,9 @@ def main():
     entries = shell_entries(src)
     problems = []
 
+    if not entries:
+        problems.append(NO_SHELL)
+
     if v is not None and tail_of(v) is None:
         problems.append(f'V is "{v}", which has no numeric tail. The tail is what makes sw.js\'s '
                         "collect directional (older generations only) — rename the stem freely, "
@@ -199,7 +238,7 @@ def main():
                             "wedges the old-generation collect on every device. Fix the path, or "
                             "generate the file (icons: scripts/make-icons.sh).")
 
-    shell = {e.lstrip("./") for e in entries if "://" not in e and e.strip("./")}
+    shell = shell_paths(src)
     staged = set(sh("git", "diff", "--cached", "--name-only").stdout.split())
     touched = sorted((staged & shell) - {"sw.js"})
     if touched:
