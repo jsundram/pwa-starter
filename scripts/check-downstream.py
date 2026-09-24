@@ -45,21 +45,43 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Files this skeleton owns. A downstream copy of one of these is what we track.
-# Each entry is a TUPLE of fingerprints — strings distinctive enough to recognize a copy that has
-# drifted far from ours but is still recognizably descended from it. ANY one of them matching is
-# enough, and that is the whole point of the tuple: a single fingerprint is a single point of
-# failure, and it failed silently. `app.js` was fingerprinted on "VER_PREFIX" alone, so AKM's copy
-# — which inlines the prefix as /^akm-v/ and keeps no such constant — was invisible to every scan
-# while carrying the #17 bug. A forgotten repo surfacing itself is this script's one job; name
-# several independent landmarks per file so one local rename can't switch it off. (#17)
+# Files this skeleton owns, keyed by BASENAME (what a downstream copy is called) → the path the
+# file lives at HERE, plus a tuple of fingerprints.
+#
+# THE PATH IS NOT COSMETIC. Drift is `git log <sha>..HEAD -- <path>`, and git takes that as a
+# pathspec: a bare "sw-lint.py" matches nothing when the file is at scripts/sw-lint.py, so every
+# stamped copy would report UP TO DATE forever. A tracked file that silently never reports is
+# worse than an untracked one — it converts a gap into a green light. Root-level files were fine
+# by accident; adding the scripts/ ones is what surfaced this.
+#
+# FINGERPRINTS: strings distinctive enough to recognize a copy that has drifted far from ours but
+# is still recognizably descended from it. ANY one matching is enough, and that is the point of
+# the tuple: a single fingerprint is a single point of failure, and it failed silently. `app.js`
+# was fingerprinted on "VER_PREFIX" alone, so AKM's copy — which inlines the prefix as /^akm-v/
+# and keeps no such constant — was invisible to every scan while carrying the #17 bug. A forgotten
+# repo surfacing itself is this script's one job; name several independent landmarks per file so
+# one local rename can't switch it off. (#17)
+#
+# Deliberately NOT fingerprinted: AKM's and gallery-deck's scripts/sw-lint.py. Both implement
+# check 1 and nothing else, in their own words — independent works that share the idea, not the
+# code. Fingerprinting them would report them behind every sw-lint commit they were never going
+# to take. They are tracked the way other independent implementations are: by name, in
+# PROPAGATE.md.
 SHARED = {
-    "sw.js": ("BUMP ON EVERY SHELL CHANGE", "ensureShell", "offlineFallback"),
-    "data.js": ("window.Data", "writeCache", "revalidate"),
-    "theme.js": ("window.Theme", "invalidateColorCache", "getCssColor"),
-    "app.js": ("VER_PREFIX", "requestShellTopUp", "ensure-shell"),
-    "ping.js": ("APP_PAGE", "URL_"),   # not the localStorage key — that's meant to be renamed
-    "pullToRefresh.js": ("PullToRefresh",),
+    "sw.js": ("sw.js", ("BUMP ON EVERY SHELL CHANGE", "ensureShell", "offlineFallback")),
+    "data.js": ("data.js", ("window.Data", "writeCache", "revalidate")),
+    "theme.js": ("theme.js", ("window.Theme", "invalidateColorCache", "getCssColor")),
+    "app.js": ("app.js", ("VER_PREFIX", "requestShellTopUp", "ensure-shell")),
+    # not the localStorage key — that's meant to be renamed
+    "ping.js": ("ping.js", ("APP_PAGE", "URL_")),
+    "pullToRefresh.js": ("pullToRefresh.js", ("PullToRefresh",)),
+    # Tooling. Not shipped to the browser, but vendored just the same — and until now invisible:
+    # these carry provenance stamps that nothing read, because the walk only yields basenames
+    # listed here. #15 proposed pushing lint features downstream on the strength of a stamp that
+    # was inert.
+    "sw-lint.py": ("scripts/sw-lint.py", ("shell_entries", "precache contract")),
+    "og-lint.py": ("scripts/og-lint.py", ("blob_size", "grey box")),
+    "sw.test.mjs": ("scripts/sw.test.mjs", ("mocked Service Worker", "NET_TIMEOUT")),
 }
 
 # Tracked regions living under a DIFFERENT basename downstream. Discovery only: there is
@@ -69,9 +91,10 @@ SHARED = {
 # partial-adopters note prescribes); without this entry the region silently vanishes from
 # the scan the moment a fingerprint leaves a basename we own.
 DISCOVER_ONLY = {
-    "updateChecker.js": ("VER_PREFIX", "forceUpdate"),
+    "updateChecker.js": (None, ("VER_PREFIX", "forceUpdate")),   # no upstream path, by definition
 }
-FINGERPRINTS = {**SHARED, **DISCOVER_ONLY}
+PATHS = {k: v[0] for k, v in {**SHARED, **DISCOVER_ONLY}.items()}
+FINGERPRINTS = {k: v[1] for k, v in {**SHARED, **DISCOVER_ONLY}.items()}
 
 STAMP = re.compile(r"pwa-starter:\s*(\S+?)\s*@\s*([0-9a-f]{7,40})(?:\s+pinned:\s*(\S[^\n]*))?")
 SKIP = {".git", "node_modules", "vendor", "dist", "build", ".venv", "__pycache__"}
@@ -136,10 +159,16 @@ def wrap(text, width=88, indent=" " * 14):
 
 
 def commits_since(sha, fname):
-    """Commits to `fname` in THIS repo after `sha`. (None, reason) if the sha is unusable."""
+    """Commits to `fname` in THIS repo after `sha`. (None, reason) if the sha is unusable.
+
+    Logs against the file's path HERE, not the basename the stamp carries: git reads the trailing
+    argument as a pathspec, and a bare basename matches nothing for a file that isn't at the root.
+    That failure is silent and reads as "up to date" — see the note on SHARED.
+    """
     if sh("git", "cat-file", "-e", sha + "^{commit}").returncode != 0:
         return None, f"unknown commit {sha} — not in this repo (rebased? typo?)"
-    r = sh("git", "log", "--format=%h\t%s", f"{sha}..HEAD", "--", fname)
+    path = PATHS.get(fname) or fname
+    r = sh("git", "log", "--format=%h\t%s", f"{sha}..HEAD", "--", path)
     if r.returncode != 0:
         return None, r.stderr.strip()
     out = [ln.split("\t", 1) for ln in r.stdout.splitlines() if ln.strip()]
@@ -196,6 +225,17 @@ def main():
 
     if args.stamp:
         return stamp_file(args.stamp, args.at)
+
+    # Self-check, because the failure this guards is invisible: a SHARED path that no longer
+    # exists here logs zero commits for every copy of it, and the scan reports them up to date.
+    # Moving or renaming one of our own files is the way that happens, and nothing else notices.
+    missing = [f"{n} → {p}" for n, p in sorted(PATHS.items())
+               if p and not os.path.exists(os.path.join(ROOT, p))]
+    if missing:
+        print("SHARED paths that don't exist here — drift for these reads as CLEAN, wrongly:")
+        for m in missing:
+            print(f"  {m}")
+        return 1
 
     notes = read_propagate()
     behind, candidates, ok, broken, pinned, discovered = [], [], 0, [], [], []

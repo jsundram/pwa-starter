@@ -250,10 +250,10 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ---
 
-## scripts/
+## check-downstream.py
 
-Not vendored files — but `check-downstream.py` is how you find out whether the entries above ever
-landed, so a gap in it is a gap in all of them.
+Upstream-only — no copy of this exists downstream. It is listed because it is how you find out
+whether the entries above ever landed, so a gap in it is a gap in all of them.
 
 - cef3cd2  **Fingerprints are now a tuple per file, matched with `any()`.** A single fingerprint is
   a single point of failure, and it failed silently: `app.js` was recognized only by the literal
@@ -262,6 +262,25 @@ landed, so a gap in it is a gap in all of them.
   invisible copies (`AKM/app.js`, `AKM/ping.js`, and quartet-log's two generated `sw.js`). If you
   maintain your own copy of this script, name several independent landmarks per file so one local
   rename can't switch discovery off. (pwa-starter#17)
+
+- e8a1d31  **The three `scripts/` files are tracked now, and `SHARED` carries each file's path
+  here.** `sw-lint.py`, `og-lint.py` and `sw.test.mjs` are vendored like everything else and were
+  never in `SHARED`, so the walk never yielded them — downstream copies have been carrying
+  `pwa-starter: sw-lint.py @ <sha>` stamps that **nothing read**. Adding them exposed the second
+  half: drift is `git log <sha>..HEAD -- <name>`, git reads that as a pathspec, and a bare
+  basename matches nothing for a file at `scripts/…`. Tracked-but-always-clean is worse than
+  untracked — it turns a gap into a green light — so `SHARED` is now `basename → (path here,
+  fingerprints)` and `main()` self-checks that every path still exists. Two copies are
+  deliberately **not** fingerprinted: `AKM/scripts/sw-lint.py` and
+  `gallery-deck/scripts/sw-lint.py` implement check 1 and nothing else, in their own words —
+  independent works that share the idea, not the code, and flagging them would report them behind
+  commits they were never going to take. (pwa-starter#15)
+
+  Turning this on surfaced a downstream in **no** registry: **`github-month-review`** vendors
+  `og-lint.py`, `make-icons.sh` and `make-og.sh` — the share-card and icon layer — and has no
+  `sw.js`, no `manifest.json` and no worker registration at all. It is a legitimate partial
+  adopter of the sharing half, not a lapsed PWA; offline entries do not apply to it. Noted here so
+  it stops reading as an unexplained gap on every scan.
 
 ---
 
