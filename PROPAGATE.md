@@ -252,7 +252,7 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ## sw-lint.py
 
-- PENDING  **Check 7, `--base REF`: the V comparison a single commit cannot make.** Checks 1-6 read
+- 857fc28  **Check 7, `--base REF`: the V comparison a single commit cannot make.** Checks 1-6 read
   one commit, which is all the pre-commit hook has. Two branches off one base can each bump
   `v32 -> v33` byte-identically; the three-way merge resolves that **without a conflict**, and the
   second one lands its shell changes with a net `V` delta of **zero**. Each side was right about
