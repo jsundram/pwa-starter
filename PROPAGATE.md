@@ -250,10 +250,40 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ---
 
-## scripts/
+## sw-lint.py
 
-Not vendored files — but `check-downstream.py` is how you find out whether the entries above ever
-landed, so a gap in it is a gap in all of them.
+- 857fc28  **Check 7, `--base REF`: the V comparison a single commit cannot make.** Checks 1-6 read
+  one commit, which is all the pre-commit hook has. Two branches off one base can each bump
+  `v32 -> v33` byte-identically; the three-way merge resolves that **without a conflict**, and the
+  second one lands its shell changes with a net `V` delta of **zero**. Each side was right about
+  its own parent and the merged result is stale on every installed client. Ported up from
+  `quartet-composers`, which paid for it (its #32) — the direction `PROPAGATE.md`'s preamble asks
+  for. **Port all four pieces:** (1) `tail_of()`; (2) `base_check()`, reading *what changed* from
+  the **merge base** (the diff a rebase, squash and stacked branch all leave alone) and *which V
+  it must clear* from **REF's tip** (against the merge base, the motivating case passes); (3) the
+  `--base` dispatch in `main()`, which REPLACES checks 1-6 rather than joining them; (4)
+  `scripts/sw-lint.test.py`, which builds real throwaway repos with real branches — the incident
+  is invisible to any test that builds one branch, so the harness is the check's evidence, not
+  decoration.
+
+  Two things a copy gets wrong if it ports the code without the reasoning. The touched set is the
+  **union of both `SHELL` lists**, because dropping an entry is itself a shell change (clients that
+  cached it keep serving it from the old generation until `V` moves) — upstream's harness has a
+  case for exactly this that the original lacked. And "I could not read the base" is **reported,
+  not skipped**: a check that passes when it could not run is the failure mode the whole thing
+  exists to close.
+
+  Wiring: CI on pull requests only, with **`fetch-depth: 0`** — the default shallow checkout has no
+  merge base, and the check will correctly refuse to pass. Not in the pre-commit hook, which has
+  neither side of the merge. Numbering note for adopters: this is **check 7 here** because 6 is the
+  `APP_V` pair (#17); in `quartet-composers` the same code is check 6. (pwa-starter#15)
+
+---
+
+## check-downstream.py
+
+Upstream-only — no copy of this exists downstream. It is listed because it is how you find out
+whether the entries above ever landed, so a gap in it is a gap in all of them.
 
 - cef3cd2  **Fingerprints are now a tuple per file, matched with `any()`.** A single fingerprint is
   a single point of failure, and it failed silently: `app.js` was recognized only by the literal
@@ -262,6 +292,25 @@ landed, so a gap in it is a gap in all of them.
   invisible copies (`AKM/app.js`, `AKM/ping.js`, and quartet-log's two generated `sw.js`). If you
   maintain your own copy of this script, name several independent landmarks per file so one local
   rename can't switch discovery off. (pwa-starter#17)
+
+- 854d957  **The three `scripts/` files are tracked now, and `SHARED` carries each file's path
+  here.** `sw-lint.py`, `og-lint.py` and `sw.test.mjs` are vendored like everything else and were
+  never in `SHARED`, so the walk never yielded them — downstream copies have been carrying
+  `pwa-starter: sw-lint.py @ <sha>` stamps that **nothing read**. Adding them exposed the second
+  half: drift is `git log <sha>..HEAD -- <name>`, git reads that as a pathspec, and a bare
+  basename matches nothing for a file at `scripts/…`. Tracked-but-always-clean is worse than
+  untracked — it turns a gap into a green light — so `SHARED` is now `basename → (path here,
+  fingerprints)` and `main()` self-checks that every path still exists. Two copies are
+  deliberately **not** fingerprinted: `AKM/scripts/sw-lint.py` and
+  `gallery-deck/scripts/sw-lint.py` implement check 1 and nothing else, in their own words —
+  independent works that share the idea, not the code, and flagging them would report them behind
+  commits they were never going to take. (pwa-starter#15)
+
+  Turning this on surfaced a downstream in **no** registry: **`github-month-review`** vendors
+  `og-lint.py`, `make-icons.sh` and `make-og.sh` — the share-card and icon layer — and has no
+  `sw.js`, no `manifest.json` and no worker registration at all. It is a legitimate partial
+  adopter of the sharing half, not a lapsed PWA; offline entries do not apply to it. Noted here so
+  it stops reading as an unexplained gap on every scan.
 
 ---
 

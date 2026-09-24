@@ -6,6 +6,11 @@
 python3 scripts/sw-lint.py || true
 python3 scripts/og-lint.py || true
 
+# The --base check (check 7) is deliberately NOT here: it needs both sides of a merge, which a
+# pre-commit hook does not have. CI runs it on pull requests. Its tests do run here, though —
+# they are self-contained and fast, and a broken lint is worth knowing about before you push.
+python3 scripts/sw-lint.test.py >/dev/null 2>&1 || echo "  (warning only — sw-lint --base tests failed; run 'python3 scripts/sw-lint.test.py' to see why)"
+
 # Behavioral tests: the offline / lie-fi fetch-handler contract. Skipped quietly if node is
 # absent (the toolchain is otherwise Python; node is only needed for these).
 if command -v node >/dev/null 2>&1; then

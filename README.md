@@ -42,7 +42,7 @@ manifest.json   installability
 ping.js         optional: queue-offline usage pings → a private Google Sheet
 usage/          optional: a client-side dashboard that reads those pings back
 assets/         icon.svg + og.svg (sources) → run the scripts to rasterize
-scripts/        make-icons.sh · make-og.sh · sw-lint.py · og-lint.py · analytics.gs (backend reference)
+scripts/        make-icons.sh · make-og.sh · sw-lint.py · sw-lint.test.py · og-lint.py · analytics.gs (backend reference)
 tools/          setup-environment.sh — check/install the build toolchain (run by a SessionStart hook)
 .githooks/      pre-commit that runs sw-lint + og-lint (enable: git config core.hooksPath .githooks)
 .nojekyll       keeps GitHub Pages from running Jekyll over the repo (presence is the whole content)
