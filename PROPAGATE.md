@@ -180,6 +180,48 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
   pathname so versioned `?v=<hash>` requests replace the precached entry instead of piling up
   per-hash copies that lose every `ignoreSearch` match).
 
+## app.js
+
+- cef3cd2  **The version tag compares `APP_V` — the running bundle — instead of the Cache Storage
+  key.** A key describes what is stored, not what the page is executing, and after a worker
+  activates those differ permanently: `sw.js` calls `skipWaiting()`/`clients.claim()` and
+  `topUpThenCollect()` drops older generations, so the key set flips to the new version while the
+  open page keeps running the bundle it parsed at launch (`clients.claim()` reloads nothing).
+  `checkVer()` then found `installed === latest`, set `behind = false`, and left `tag.onclick`
+  null — a device stranded one release back was told it was current, with the one affordance that
+  unsticks it by hand hidden, because the tag did not believe an update existed. A standalone PWA
+  that is never force-quit holds that state indefinitely. **Port all three pieces:** (1) a
+  `const APP_V` declared next to `VER_PREFIX` and kept equal to `sw.js`'s `V`; (2) `behind`,
+  `textContent` and the tag title reading `APP_V` instead of `installed`; (3) the cache lookup
+  reduced to a boolean "is a worker installed at all" — **drop the ranking and the non-empty
+  filter with it.** Both existed to stop the key from lying about currency, which `APP_V` settles
+  at the source, and keeping the filter now does active harm: it hides the tag on a device whose
+  new cache is still the empty placeholder `ensureShellOnce()` opens, which is precisely the
+  stranded device it was written to protect. `scripts/sw-lint.py` check 6 enforces the
+  `APP_V`/`V` pair; carry that too, or the contract is prose again.
+  Known affected — all of these read `installed` from `caches.keys()` *and* ship a worker that
+  calls `skipWaiting()` + `clients.claim()`, which is the full precondition:
+  `quartets.boccherini.org/app.js:47` and `lissajous-tuner/app.js:663` carry the current block
+  verbatim and need the straight port. `gallery-deck/web/public/app.js` carried the older
+  `find()` form, hit this first, and is fixed there at `gd-v24` — it is where the bug was found.
+  `quartet-log/src/updateChecker.js:38` has it too, despite already using the `version.json`
+  probe this file lists as a pull-back candidate: that probe improves how `latest` is obtained
+  and is **orthogonal** to this bug, which is on the `installed` side — its own comment still
+  says "the installed version is just the `ql-` cache key". It is discovery-only here, so it
+  needs a hand-carried fix, and its content-hash `V` has no numeric tail to rank, which makes the
+  boolean gate the natural shape there anyway. (pwa-starter#17)
+
+  The **same commit** adds a README note on what the host must do: serve the shell with a
+  validator and no heuristic freshness (`Cache-Control: no-cache` + ETag). Not a code change, but
+  it is the second, independent cause of the identical symptom — a self-hosted app that sends no
+  `Cache-Control` lets the browser invent a lifetime from `Last-Modified` and answer the
+  network-first fetch from the HTTP cache without contacting the server, so the version reads
+  current while the bundle goes stale. Only downstreams that host their own shell need it;
+  GitHub Pages already sends sane headers. `gallery-deck` hit both causes at once (its shell is
+  served by Starlette's `StaticFiles`, which sends none).
+
+---
+
 ## data.js
 
 - ddd9ab8  Never cache an empty/invalid payload: gate `writeCache` on an `opts.valid` predicate and
