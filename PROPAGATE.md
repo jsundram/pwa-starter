@@ -70,6 +70,29 @@ doesn't need this. That signal only fires on a copy that kept those names, thoug
 its way out of both and went unnoticed through `#17`. **If a region gets big or subtle enough to
 warrant tracking, split it into its own file first**, then stamp that.
 
+**Canonical filenames — govern the NAME, not the path.** Discovery matches on the *basename*, so
+a copy is found wherever it lives: `app.js` at the root, under `web/`, under `src/` behind a build
+step — all fine, and all legitimately forced by each app's layout. What is **not** negotiable is
+the spelling. A renamed file is invisible to every scan no matter how many fingerprints it carries,
+because `walk()` gates on an exact basename match before a fingerprint is ever read.
+
+That is not hypothetical: `sw_lint.py` — underscore — hid a real copy in **two** repos
+(`quartets.boccherini.org/tools/`, `haydn-info-card/src/`) through the whole of `#17`, while both
+carried the bug. Widening fingerprints cannot fix it and neither can adding names one at a time;
+the set of plausible renames is open. So there is one spelling per file, and `check-downstream.py`
+reports a **near-miss basename** (`_` where we use `-`) as MISNAMED rather than letting it vanish.
+
+| Canonical | Not |
+|---|---|
+| `sw.js`, `app.js`, `data.js`, `theme.js`, `ping.js`, `pullToRefresh.js` | — (already uniform fleet-wide) |
+| `sw-lint.py` | `sw_lint.py` |
+| `sw-lint.test.py`, `og-lint.py`, `sw.test.mjs` | — |
+| `make-icons.sh`, `make-og.sh`, `pre-commit` | — |
+
+Directory is yours: `scripts/`, `tools/`, `src/`, `web/` all work. `hooks/` vs `.githooks/` is a
+per-clone `core.hooksPath` setting — renaming that directory silently disables the hook until the
+config is updated, so leave it alone unless you update both.
+
 **Stamping an app you didn't just sync?** Use `--at <sha>` with the commit it actually matches, not
 `HEAD`. A stamp at HEAD claims it has changes it doesn't, and the checker will report it clean while
 it's silently behind. When the true fork point is unknown, stamping at a known-good audit baseline is

@@ -184,8 +184,23 @@ def commits_since(sha, fname):
     return out, None
 
 
+# Basenames that are ALMOST one of ours. Discovery gates on an exact basename match, so a copy
+# that renamed the file is invisible no matter how many fingerprints it carries — `sw_lint.py`
+# (underscore) hid a real copy in TWO repos through the whole of #17, and adding names one at a
+# time loses to an open-ended set of plausible renames. So: one canonical spelling per file,
+# written down in PROPAGATE.md, plus this near-miss check so a violation surfaces instead of
+# vanishing. Normalizing _ to - catches the case that actually happened; it is a convention
+# guard, not a search. (#15)
+def canonical_for(fname):
+    """The name we own that `fname` is a near-miss of, or None."""
+    if fname in FINGERPRINTS:
+        return None
+    norm = fname.replace("_", "-")
+    return norm if norm in FINGERPRINTS and norm != fname else None
+
+
 def walk(roots):
-    """Yield every file under `roots` whose basename is one we own (skipping this repo)."""
+    """Yield every file under `roots` whose basename is one we own, or a near-miss of one."""
     for root in roots:
         root = os.path.abspath(root)
         for dirpath, dirnames, filenames in os.walk(root):
@@ -194,7 +209,7 @@ def walk(roots):
                 dirnames[:] = []
                 continue
             for fn in filenames:
-                if fn in FINGERPRINTS:
+                if fn in FINGERPRINTS or canonical_for(fn):
                     yield os.path.join(dirpath, fn)
 
 
@@ -257,10 +272,17 @@ def main():
         return 1
 
     notes = read_propagate()
-    behind, candidates, ok, broken, pinned, discovered = [], [], 0, [], [], []
+    behind, candidates, ok, broken, pinned, discovered, misnamed = [], [], 0, [], [], [], []
 
     for path in walk(args.paths or [os.path.dirname(ROOT)]):
         fname = os.path.basename(path)
+        canon = canonical_for(fname)
+        if canon:
+            # Misnamed, not unknown: report it as a convention violation rather than tracking it.
+            # Renaming is the fix — discovery is name-addressed, so the copy is invisible to every
+            # future scan until it is spelled the way PROPAGATE.md says.
+            misnamed.append((path, canon))
+            continue
         text = head(path)
         m = STAMP.search(text)
         if not m:
@@ -318,14 +340,21 @@ def main():
             print(f"  {rel(path)}")
         print("  → adopt with: python3 scripts/check-downstream.py --stamp <file>")
 
+    if misnamed:
+        print("\nMISNAMED — recognizably ours under a non-canonical filename. Discovery matches on"
+              "\nthe basename, so these are invisible to every scan until they are renamed:")
+        for path, canon in misnamed:
+            print(f"  {rel(path)}  → rename to {canon}")
+
     if discovered:
         print("\nDiscovery-only regions (tracked by hand in PROPAGATE.md — do not stamp):")
         for path in discovered:
             print(f"  {rel(path)}")
 
     print(f"\n{ok} up to date, {len(behind)} behind, {len(pinned)} pinned, "
-          f"{len(candidates)} untracked, {len(discovered)} discovery-only, {len(broken)} unusable")
-    return 1 if behind or broken else 0
+          f"{len(candidates)} untracked, {len(misnamed)} misnamed, "
+          f"{len(discovered)} discovery-only, {len(broken)} unusable")
+    return 1 if behind or broken or misnamed else 0
 
 
 if __name__ == "__main__":
