@@ -9,6 +9,9 @@
 // (foreground poll + resume re-pull + optional pull-to-refresh).
 
 const VER_PREFIX = "app-v";        // must match sw.js's V stem — and V's numeric tail is load-bearing
+const APP_V = "app-v8";            // THIS bundle's version. Must equal sw.js's V — scripts/sw-lint.py
+                                   // fails the commit on drift. checkVer() compares against it, because
+                                   // a cache key describes storage, not the code that is running.
 const DATA_URL = "";               // <-- your cross-origin data endpoint (empty = disabled, like ping.js)
 const DATA_KEY = "main";           // localStorage cache slot for this endpoint
 const STALE_MS = 5 * 60 * 1000;    // cached data older than this is worth re-fetching
@@ -143,31 +146,24 @@ function updateThemeLabel(){
 async function checkVer(){
   const tag = document.getElementById("ver");
   if(!tag) return;
-  // HIGHEST version, not the first key: two caches can legitimately coexist for a while (sw.js
-  // keeps the old one as a net until the new precache is complete), and caches.keys() is in
-  // creation order — so find() would report the OLD version as installed and show a permanent
-  // "tap to update" tag on an already-current device.
+  // Is a worker installed AT ALL? That is the only question cache keys can answer honestly, and
+  // it exists purely to keep the tag hidden in a plain browser tab. What this device is RUNNING
+  // is APP_V; see the comparison below.
   //
-  // But only among caches that actually HOLD something. sw.js's ensureShellOnce() calls
-  // caches.open(V) before it fetches anything, so a bumped version exists as an EMPTY cache the
-  // moment an install starts — and per-file precaching means that worker activates even if every
-  // shell fetch failed. Ranking on names alone then reads the empty placeholder as "installed",
-  // concludes the device is current, and hides the tag on a device still serving the PREVIOUS
-  // release out of the old cache — killing the one affordance that unsticks it by hand. A
-  // partly-filled new cache still reads as installed; that state repairs itself on the next
-  // top-up, whereas the empty one can persist.
-  let installed = "";
-  try{
-    const keys = (await caches.keys()).filter(k => k.startsWith(VER_PREFIX));
-    const sized = await Promise.all(
-      keys.map(async k => [(await (await caches.open(k)).keys()).length, k]));
-    installed = sized
-      .filter(([n]) => n > 0)
-      .map(([, k]) => [parseInt(k.slice(VER_PREFIX.length), 10) || 0, k])
-      .sort((a, b) => a[0] - b[0])
-      .map(([, k]) => k)
-      .pop() || "";
-  }catch{}
+  // This block used to rank the keys — highest version, non-empty only — and treat the winner as
+  // the installed version. A key cannot report that. sw.js calls skipWaiting()/clients.claim()
+  // and topUpThenCollect() drops older generations, so the key set flips to the new version the
+  // instant a worker activates, while this page keeps executing the bundle it parsed at launch:
+  // clients.claim() reloads nothing. The comparison then found installed === latest and hid the
+  // affordance on a device stranded one release back, with no way out — the tag did not believe
+  // an update existed, so there was nothing to tap. (#17)
+  //
+  // The ranking and the non-empty filter went with it. Both existed to stop the KEY from lying
+  // about currency, which APP_V now settles at the source; keeping the filter would do active
+  // harm, hiding the tag on a device whose new cache is still the empty placeholder
+  // ensureShellOnce() opens — precisely the stranded device it was written to protect.
+  let installed = false;
+  try{ installed = (await caches.keys()).some(k => k.startsWith(VER_PREFIX)); }catch{}
   if(!installed){ tag.hidden = true; return; }
 
   let latest = "";
@@ -181,10 +177,12 @@ async function checkVer(){
     latest = (src.match(/const V\s*=\s*"([^"]*)"/) || ["", ""])[1];
   }catch{}   // offline: leave latest empty → neutral tag, never a false "behind"
 
-  const behind = latest && latest !== installed;
+  // Compare what is RUNNING against the server. APP_V is baked into this bundle, so a page still
+  // executing an old app.js reports the old version no matter how current the cache is.
+  const behind = latest && latest !== APP_V;
   tag.hidden = false;
   tag.className = "ver" + (behind ? " behind" : "");
-  tag.textContent = behind ? `${installed} → ${latest}` : installed;
+  tag.textContent = behind ? `${APP_V} → ${latest}` : APP_V;
   tag.title = behind ? "New version available — tap to update" : "Up to date";
   tag.onclick = behind ? forceUpdate : null;
 }

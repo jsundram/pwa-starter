@@ -75,6 +75,28 @@ python3 -m http.server 8000    # open http://localhost:8000/  — installable + 
 
 Then read [`CLAUDE.md`](CLAUDE.md) for the full checklist and the reasoning behind each piece.
 
+### What the host has to do
+
+One requirement the skeleton can't enforce from inside the files: **the shell must not be served
+with heuristic freshness.** Send *no* `Cache-Control` at all and the browser is free to invent a
+lifetime from `Last-Modified` — roughly 10% of the file's age, so an old file can be cached for
+weeks — and answer out of the HTTP cache without ever contacting the server. The worker script
+itself is always fetched fresh, so the version tag reads current while the bundle it describes
+goes stale: an update that silently never lands, and a second, independent cause of #17's symptom.
+
+Which requests this reaches: the shell is served **cache-first**, so a warm load never touches the
+network at all, and the per-file precache fetches with `cache: "reload"`, which bypasses the HTTP
+cache outright. What's exposed is the live branch's **bounded network fallback** — a first run, or
+a shell iOS evicted — plus anything `cachePut()` stores. Narrow, but it is the cold path, i.e. the
+one that rebuilds a device from nothing.
+
+The fix is an explicit header. `Cache-Control: no-cache` plus an ETag is the strong form —
+`no-cache` means *revalidate*, not *don't store*, so with a validator it costs a 304. **GitHub
+Pages sends `Cache-Control: max-age=600` with an ETag**, which is weaker but sufficient: an
+explicit lifetime stops the browser guessing, and the window is a bounded 10 minutes. A
+self-hosted app is the one to check — Starlette's `StaticFiles`, for instance, sends no
+`Cache-Control` at all.
+
 ## Sources
 
 Every rule here was paid for once, in one of these apps. The first four are the *"forgot the list,

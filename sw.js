@@ -30,11 +30,13 @@
 // Get one wrong and the failure is a blank white screen offline, a lost offline copy, or a stale
 // one that never updates. The seven review rounds behind this design: #7.
 
-const V = "app-v7";   // <-- BUMP ON EVERY SHELL CHANGE (rename the stem freely; keep the digits)
+const V = "app-v8";   // <-- BUMP ON EVERY SHELL CHANGE (rename the stem freely; keep the digits)
 
 // "app-v" — the stem shared by every cache generation. app.js's VER_PREFIX must match it, and the
-// NUMERIC TAIL is load-bearing: it orders generations for the collect below and for checkVer()'s
-// ranking in app.js. scripts/sw-lint.py rejects a V without digits at commit time.
+// NUMERIC TAIL is load-bearing: it is what makes the collect below DIRECTIONAL (delete strictly
+// older generations, never "everything that isn't me"). app.js no longer ranks these names —
+// checkVer() compares its own baked-in APP_V, not a cache key (#17) — so this file is now the
+// only reader of the tail. scripts/sw-lint.py rejects a V without digits at commit time.
 const V_STEM = V.replace(/\d+$/, "");
 
 // Numeric generation of a cache name, or null if it isn't one of ours. Used to make the collect
@@ -167,11 +169,11 @@ self.addEventListener("install", e => {
 // one-shot in activate: CacheStorage.match() iterates caches in CREATION order, so while an old
 // version lingers it ANSWERS FIRST and shadows the current shell (verified in both engines —
 // caches ['app-v6','app-v7'] both holding a URL resolve to the v6 copy). A lingering old cache
-// means the device serves the previous release offline, and checkVer() reads the wrong installed
-// version. cacheLookup() closes the read-path shadowing by construction, but the storage cost and
-// the checkVer() confusion persist until something collects — and activate fires once per SW
-// version, hence the retry from the message handler below, the only hook that runs after
-// activation.
+// means the device serves the previous release offline. cacheLookup() closes the read-path
+// shadowing by construction, but the storage cost persists until something collects — and
+// activate fires once per SW version, hence the retry from the message handler below, the only
+// hook that runs after activation. (This used to confuse app.js's version tag too; it no longer
+// can — checkVer() reads APP_V, not these keys. #17)
 async function topUpThenCollect() {
   const { transient, permanent } = await ensureShell();
   if (transient > 0) return transient;              // keep the old cache as a net, try again later

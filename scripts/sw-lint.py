@@ -4,7 +4,7 @@
 # ///
 """Commit-time checks for sw.js's precache contract.
 
-sw.js precaches the app SHELL. Five mistakes are cheap to catch here and expensive at runtime:
+sw.js precaches the app SHELL. Six mistakes are cheap to catch here and expensive at runtime:
 
 1. A staged SHELL file with an unchanged V. An edit to a precached file only reaches installed
    clients when V changes — forget the bump and the fix ships to the repo but never to anyone's
@@ -14,12 +14,16 @@ sw.js precaches the app SHELL. Five mistakes are cheap to catch here and expensi
    still answering via the whole-store fallback. (#7)
 3. A cross-origin SHELL entry. The fetch handler passes other origins straight through, so the
    entry would be cached but never served — vendor the file locally instead.
-4. A V without a numeric tail. The tail orders generations for sw.js's collect and app.js's
-   checkVer() ranking; a non-numeric V makes collection silently stop, no error, no symptom,
-   until caches pile up. Rename the stem freely — keep the digits.
-5. app.js's VER_PREFIX not matching V's stem. checkVer() ranks installed caches by that prefix,
-   so a renamed stem on one side only makes the version tag go blank (no cache matches) or read
-   a sibling app's caches — silently, since nothing throws. The stems must agree. (#7)
+4. A V without a numeric tail. The tail is what makes sw.js's collect DIRECTIONAL (delete only
+   strictly older generations); a non-numeric V makes collection silently stop, no error, no
+   symptom, until caches pile up. Rename the stem freely — keep the digits.
+5. app.js's VER_PREFIX not matching V's stem. checkVer() uses that prefix to decide whether a
+   worker is installed at all, so a renamed stem on one side only makes the version tag go blank
+   (no cache matches) or read a sibling app's caches — silently, since nothing throws. (#7)
+6. app.js's APP_V not matching V. APP_V is the version the running bundle REPORTS, and what
+   checkVer() compares against the server. Let it drift and a client running a stale bundle
+   compares the wrong number: the tag reads current and never offers the update, on exactly the
+   device that needs it. (#17)
 
 The pre-commit hook runs it warn-only; run it in CI with a real exit code. By hand:
     python3 scripts/sw-lint.py
@@ -60,9 +64,9 @@ def main():
     problems = []
 
     if v is not None and not re.search(r"\d+$", v):
-        problems.append(f'V is "{v}", which has no numeric tail. The tail orders cache '
-                        "generations (sw.js's collect, app.js's ranking) — rename the stem "
-                        "freely, but keep the digits.")
+        problems.append(f'V is "{v}", which has no numeric tail. The tail is what makes sw.js\'s '
+                        "collect directional (older generations only) — rename the stem freely, "
+                        "but keep the digits.")
 
     # Downstream copies don't always vendor app.js (some graft only the version-tag region, some
     # skip it), so a missing file or a missing declaration is silence, not a problem.
@@ -72,8 +76,17 @@ def main():
         stem = re.sub(r"\d+$", "", v)
         if m and m.group(1) != stem:
             problems.append(f'app.js\'s VER_PREFIX is "{m.group(1)}" but sw.js\'s V stem is '
-                            f'"{stem}" — checkVer() ranks caches by that prefix, so the version '
-                            "tag silently stops tracking this app. Keep the two in agreement.")
+                            f'"{stem}" — checkVer() looks for caches under that prefix, so the '
+                            "version tag silently stops tracking this app. Keep the two in "
+                            "agreement.")
+        # ver()'s regex is anchored to `const V`, so it never matches `const APP_V`; this one is
+        # anchored the same way for the same reason.
+        mv = re.search(r'const APP_V\s*=\s*"([^"]*)"', app.stdout)
+        if mv and mv.group(1) != v:
+            problems.append(f'app.js\'s APP_V is "{mv.group(1)}" but sw.js\'s V is "{v}" — '
+                            "checkVer() reports APP_V as the version this device is RUNNING, so "
+                            "a drifted pair compares the wrong number and the tag goes quiet on "
+                            "a stale client. Bump both together.")
 
     top = sh("git", "rev-parse", "--show-toplevel").stdout.strip()
     for entry in entries:

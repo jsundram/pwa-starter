@@ -42,7 +42,7 @@ into *their* app. Do this in order:
    | `One sentence on what this is.` | real description | index.html meta/OG |
    | `https://USER.github.io/APP/` | real absolute URL | index.html OG/canonical (must be absolute) |
    | `#f5f5f5` / `#1a1a1a` / `#2196f3` | real palette | styles.css vars, theme-color metas, manifest colors, sw.js `offlineFallback()` (inline by necessity — it renders when styles.css is unreachable) |
-   | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` (keep in sync!) — rename the *stem* only; the **numeric tail is load-bearing** (it orders cache generations for sw.js's collect and checkVer()'s ranking; sw-lint enforces it) |
+   | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` **and** app.js `APP_V` (all three, keep in sync!) — rename the *stem* only; the **numeric tail is load-bearing** (it makes sw.js's collect directional; sw-lint enforces it) |
    | `app-token` | a random token | ping.js + scripts/analytics.gs (must match) |
    | `app-pings` / `app-me` / `app-usage` | localStorage keys (optional rename) | ping.js, usage/index.html |
    | `app-theme` / `app-data:` | localStorage keys (optional rename) | theme.js **and** index.html pre-paint script (keep in sync!); data.js |
@@ -138,7 +138,12 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] Service worker registered + precaching the shell (`SHELL` lists every offline-needed file)
 - [ ] **A version constant `V` bumped on every shell change** — the #1 gotcha. `V` must keep a
   **numeric tail** (rename the stem freely) — it orders cache generations
-- [ ] `app.js`'s `VER_PREFIX` matches `sw.js`'s `V` stem (drives the "tap to update" tag)
+- [ ] `app.js`'s `VER_PREFIX` matches `sw.js`'s `V` stem, and `app.js`'s `APP_V` **equals** `V`
+  (both drive the "tap to update" tag; `sw-lint.py` checks 5 and 6 enforce the pair)
+- [ ] **The update tag compares the version baked into the RUNNING bundle (`APP_V`), never a Cache
+  Storage key** — after `skipWaiting()`/`clients.claim()` the keys flip to the new version while
+  the open page keeps executing the bundle it parsed at launch, so a key-based tag reports "up to
+  date" on precisely the device that is stranded a release back, with nothing to tap
 - [ ] **Per-file precache, never a bare `cache.addAll`** — one 404 rejects an atomic install and the
   device gets *no cache at all*; and an evicted-but-registered cache must **self-heal** (top-up on
   load/foreground), or it stays blank offline forever. See §Offline: per-file brings a *partial*
@@ -813,6 +818,12 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Unanchored version regex in `checkVer()`** → a first-match-anywhere scan for `app-v\d+` matches
   a *comment* and pins a permanent "tap to update" tag that does nothing when tapped. Parse the
   declaration: `const V\s*=\s*"…"` — same expression as `sw-lint.py`. (#7)
+- **Update tag compares a cache KEY instead of the running bundle** → `skipWaiting()` +
+  `clients.claim()` flip the key set to the new version the instant a worker activates, but
+  `clients.claim()` reloads nothing, so the open page keeps running the bundle it parsed at launch.
+  The tag reads `installed === latest`, hides itself, and nulls its `onclick` — on exactly the
+  device that is a release behind, in a standalone app with no reload button. Every deploy strands
+  every open copy. Compare a version baked into the bundle (`APP_V`). (#17)
 - **SW caches its own version probe** → `checkVer()` fetches `./sw.js?_=<ts>` on every resume; if the
   fetch handler caches it, each resume writes a dead unique-key entry (unbounded growth between
   deploys), and any cache-first-`.js` adopter serves a stale probe back so "tap to update" never
