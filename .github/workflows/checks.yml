@@ -7,9 +7,16 @@ name: checks
 #   - scripts/sw-lint.py       : the precache-contract checks (the pre-commit hook runs these
 #     warn-only; here they fail the build). NB its headline check — a staged SHELL file touched
 #     without a V bump — reads `git diff --cached`, which is empty in a CI checkout, so THAT check
-#     only bites locally in the hook; CI enforces the other four (missing/renamed entries,
-#     cross-origin entries, V's numeric tail, VER_PREFIX agreement). Base-vs-head V comparison
-#     would be a separate enhancement.
+#     only bites locally in the hook; CI enforces the other five (missing/renamed entries,
+#     cross-origin entries, V's numeric tail, VER_PREFIX agreement, APP_V agreement).
+#   - scripts/sw-lint.py --base : the one check that NEEDS CI, because it needs both sides of the
+#     merge. Two branches off one base can each bump v32 -> v33 byte-identically and the merge
+#     resolves silently to a net V delta of zero — correct from either side alone, broken once
+#     joined. PR-only (on a push to main there is nothing to merge into), and it requires
+#     fetch-depth: 0: with the default shallow checkout there is no merge base, and the check
+#     REPORTS that rather than passing, which would fail every PR.
+#   - scripts/sw-lint.test.py  : proves the --base check catches that incident and nothing else,
+#     by building real throwaway repos with real branches.
 #   - scripts/og-lint.py is NOT here for the same reason it can't be: it only inspects the staged
 #     OG card (`git diff --cached`), so in CI it has nothing to check. It stays a hook-only guard.
 
@@ -23,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # --base needs a merge base; a shallow clone has none
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -32,3 +41,10 @@ jobs:
         run: node scripts/sw.test.mjs
       - name: precache lint (scripts/sw-lint.py)
         run: python3 scripts/sw-lint.py
+      - name: --base check tests (scripts/sw-lint.test.py)
+        run: python3 scripts/sw-lint.test.py
+      # HEAD here is GitHub's merge commit (PR merged into the base), which is exactly the thing
+      # the check is asking about: "once this lands, will V have moved?"
+      - name: branch V check (scripts/sw-lint.py --base)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/sw-lint.py --base "origin/${{ github.base_ref }}"

@@ -95,7 +95,7 @@ stays relative). Everything that is *not* shipped to the browser is segregated:
 - **`assets/`** = icons + share card. `icon.svg`/`og.svg` are the **sources of truth**; the PNGs
   are generated, never hand-edited.
 - **`usage/`** = the self-contained analytics dashboard (its own page, precached, `noindex`).
-- **`scripts/`** = tooling that never ships: asset rasterizers, `sw-lint.py`, `og-lint.py`, and
+- **`scripts/`** = tooling that never ships: asset rasterizers, `sw-lint.py` (+ `sw-lint.test.py`), `og-lint.py`, and
   `analytics.gs` (reference copy of the backend).
 - **`tools/`** = `setup-environment.sh`, the idempotent build-toolchain check/installer, run from a
   `SessionStart` hook in `.claude/settings.json` so a fresh clone or cloud session can actually build.
@@ -160,10 +160,16 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
   `.html`/`.js` URL is in `SHELL`" load-bearing: a non-shell one is served stale until a `V` bump
   collects the old generation, so new pages/scripts go in `SHELL` (+ bump), not runtime caching
 - [ ] `sw-lint.py` wired into the pre-commit hook / CI (V bump, numeric tail, SHELL paths exist,
-  no cross-origin entries), and `scripts/sw.test.mjs` in CI (the behavioral half: cache-first
-  serves, lie-fi bounds, offline fallbacks — runs `sw.js` unmodified under mocked SW globals.
-  Fetch-handler coverage only: the precache/generation half — `ensureShell()`, the directional
-  collect, `cacheLookup()`'s V-scoping — is held by prose + `sw-lint.py`, not by these tests)
+  no cross-origin entries, `VER_PREFIX` + `APP_V` agreement), and `scripts/sw.test.mjs` in CI (the
+  behavioral half: cache-first serves, lie-fi bounds, offline fallbacks — runs `sw.js` unmodified
+  under mocked SW globals. Fetch-handler coverage only: the precache/generation half —
+  `ensureShell()`, the directional collect, `cacheLookup()`'s V-scoping — is held by prose +
+  `sw-lint.py`, not by these tests)
+- [ ] **`sw-lint.py --base <ref>` on pull requests** — the one check a single commit cannot make:
+  two branches off one base can bump `V` identically, the merge resolves without a conflict, and
+  the second lands its shell changes with a net `V` delta of zero. Correct from either side alone,
+  stale once joined. CI only (the hook has one commit and neither side of the merge), and it needs
+  `fetch-depth: 0` or there is no merge base to read — which it reports rather than passing over
 - [ ] **No uncached third-party dependency** — every `<script src="https://cdn…">`, webfont, and CSS
   the app can't run without is either **precached in `SHELL`** or **vendored locally**. This is the
   one that passes every other check and still opens blank on a plane: the manifest installs fine, the

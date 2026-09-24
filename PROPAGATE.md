@@ -250,6 +250,36 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ---
 
+## sw-lint.py
+
+- PENDING  **Check 7, `--base REF`: the V comparison a single commit cannot make.** Checks 1-6 read
+  one commit, which is all the pre-commit hook has. Two branches off one base can each bump
+  `v32 -> v33` byte-identically; the three-way merge resolves that **without a conflict**, and the
+  second one lands its shell changes with a net `V` delta of **zero**. Each side was right about
+  its own parent and the merged result is stale on every installed client. Ported up from
+  `quartet-composers`, which paid for it (its #32) — the direction `PROPAGATE.md`'s preamble asks
+  for. **Port all four pieces:** (1) `tail_of()`; (2) `base_check()`, reading *what changed* from
+  the **merge base** (the diff a rebase, squash and stacked branch all leave alone) and *which V
+  it must clear* from **REF's tip** (against the merge base, the motivating case passes); (3) the
+  `--base` dispatch in `main()`, which REPLACES checks 1-6 rather than joining them; (4)
+  `scripts/sw-lint.test.py`, which builds real throwaway repos with real branches — the incident
+  is invisible to any test that builds one branch, so the harness is the check's evidence, not
+  decoration.
+
+  Two things a copy gets wrong if it ports the code without the reasoning. The touched set is the
+  **union of both `SHELL` lists**, because dropping an entry is itself a shell change (clients that
+  cached it keep serving it from the old generation until `V` moves) — upstream's harness has a
+  case for exactly this that the original lacked. And "I could not read the base" is **reported,
+  not skipped**: a check that passes when it could not run is the failure mode the whole thing
+  exists to close.
+
+  Wiring: CI on pull requests only, with **`fetch-depth: 0`** — the default shallow checkout has no
+  merge base, and the check will correctly refuse to pass. Not in the pre-commit hook, which has
+  neither side of the merge. Numbering note for adopters: this is **check 7 here** because 6 is the
+  `APP_V` pair (#17); in `quartet-composers` the same code is check 6. (pwa-starter#15)
+
+---
+
 ## check-downstream.py
 
 Upstream-only — no copy of this exists downstream. It is listed because it is how you find out
