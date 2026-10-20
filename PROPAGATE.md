@@ -280,6 +280,26 @@ it stays pinned at `2ed87e9` unless it ever grows an offline content cache.
 
 ---
 
+## sw-lint.test.py
+
+- 7b66416  **Strip every inherited `GIT_*` variable at startup, before any git call.** Every copy
+  run from a pre-commit hook has this leak, whichever commit it came from. git gives a hook
+  `GIT_DIR` and `GIT_INDEX_FILE`, absolute in a worktree and under `commit -a`. A copy from
+  857fc28 passes no `env=` at all, and one from de6ccfb passes `GIT_ENV`, which still carries
+  both. Either way the fixtures' git calls hit the repo being committed. Under `commit -a` the
+  fixture README.md gets staged into your commit (it fails with "invalid object ... for
+  'README.md'" only because the blob is missing). In a worktree the fixture branches, commits and
+  identity land in your repo, and `core.bare = true` breaks every checkout. **Port the
+  `os.environ` block at the top, the `--hook-probe` branch and the HERMETIC UNDER A HOOK case,
+  and delete `GIT_ENV` and its `env=` arguments.** The block also blanks the global and system
+  config, so a pre-de6ccfb copy picks up that fix too (de6ccfb has no entry of its own). Then
+  check any repo the hook ran in: `git config --local core.bare` should print `false`,
+  `git config --local --get-regexp '^user\.'` must not show `t@t`, and `git log --all
+  --author='^t$'` should be empty. The test's branches are `pr-a`, `pr-b`, `b` and `island`; one
+  with those names is the test's only if its commits are by `t`.
+
+---
+
 ## check-downstream.py
 
 Upstream-only — no copy of this exists downstream. It is listed because it is how you find out
