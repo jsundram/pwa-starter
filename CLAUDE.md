@@ -810,9 +810,11 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
   - **Single-process Chrome holds ONE browser context**, and a second one crashes it
     (`TargetClosedError`) — even after the first is closed. In Playwright every
     `browser.new_page()` quietly makes a new context, so a harness that calls it per scenario dies
-    on the second. Make one `ctx = browser.new_context()` and call `ctx.new_page()`; scenarios then
-    share cookies and `localStorage`, so one that relied on a fresh context for isolation needs an
-    explicit reset (`localStorage.clear()` in an init script) instead.
+    on the second. Two ways out. Where scenarios need no isolation, make one
+    `ctx = browser.new_context()` and call `ctx.new_page()`. Where they rely on a fresh context
+    (`localStorage`, cookies), launch a separate browser per scenario instead: two single-process
+    browsers run side by side fine, each holding its one context, and isolation is kept for the
+    cost of a launch.
   - **The page cannot reach the internet.** Chrome ignores the sandbox's HTTP proxy, so every
     outside host fails with `ERR_NAME_NOT_RESOLVED` — and a check that counts console errors goes
     red on analytics or a CDN it isn't testing. Answer third-party requests in the harness
