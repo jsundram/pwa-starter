@@ -794,6 +794,30 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
   tab — which doesn't register the service worker, so nothing caches** and every reload is the latest
   code. That last bit is the point: it rules out "is this my fix or a stale SW?" at the same time, the
   question that otherwise eats an hour on any installed PWA.
+- **A browser harness must run inside Claude Code's macOS sandbox, not around it.** A harness that
+  only works unsandboxed gets retried outside the sandbox on every run: a permission prompt each
+  time, and the browser running with no containment. quartet-composers had piled up hundreds of
+  those before it was fixed (quartet-composers#120). Four things stop a headless Chrome in there,
+  and each fails with a symptom pointing somewhere else:
+  - **Chrome aborts at startup** (`bootstrap_check_in ... MachPortRendezvousServer: Permission
+    denied`). On macOS Chrome registers a Mach service so its helper processes can find the browser,
+    and the sandbox forbids registering one. `--single-process` has no helpers and skips it. Add it
+    **only when `SANDBOX_RUNTIME=1` and the OS is macOS**, so CI and a plain run keep testing the
+    multi-process browser people use: `[ "${SANDBOX_RUNTIME:-}" = 1 ] && [ "$(uname)" = Darwin ]`
+    in shell, `process.env.SANDBOX_RUNTIME === "1" && process.platform === "darwin"` in Node,
+    `os.environ.get("SANDBOX_RUNTIME") == "1" and sys.platform == "darwin"` in Python. In
+    Playwright that is `chromium.launch(args=["--single-process"])`.
+  - **Use Playwright's `chrome-headless-shell`, not `/Applications/Google Chrome.app`.** Full branded
+    Chrome also starts a crash reporter and takes a profile lock in the per-user temp directory,
+    both of which the sandbox refuses, and `--single-process` does not get it past either.
+    `chromium.launch()` in headless mode already picks the shell.
+  - **Bare `mktemp -d` on macOS ignores `$TMPDIR`** and writes to the per-user temp directory, which
+    the sandbox refuses — so a harness's work directory comes back empty and the failure surfaces
+    later, as a server that "never took its port". Name the template:
+    `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"`.
+  - **A local server needs `sandbox.network.allowLocalBinding: true`** in Claude Code's settings, or
+    `http.server` fails to bind with `Operation not permitted`. That is a per-machine setting, not
+    something the repo can carry.
 
 ---
 
@@ -837,6 +861,9 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
 - **Testing a fix on an installed PWA** → you're fighting the SW cache, not your code. Test the working
   tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
+- **Browser harness that only works unsandboxed** → every Claude Code run on a Mac fails, is retried
+  outside the sandbox, and prompts for permission. Headless shell + `--single-process` when
+  `SANDBOX_RUNTIME=1` on macOS, a `$TMPDIR` mktemp template; see §Testing without a build.
 - **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
 - **SW cached a 404/502 body** → `fetch()` resolves on an HTTP error, so an ungated `c.put()` overwrites
