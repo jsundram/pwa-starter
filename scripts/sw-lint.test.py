@@ -28,13 +28,22 @@ fails = []
 # it would print "(warning only — sw-lint --base tests failed)" on every commit forever, pointing
 # at a lint that is fine. Blanking both config scopes fixes the whole class rather than the three
 # settings we thought of.
-GIT_ENV = {**os.environ,
-           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
-           "GIT_TERMINAL_PROMPT": "0"}
+#
+# The environment needs the same treatment. git hands a pre-commit hook GIT_DIR and GIT_INDEX_FILE
+# — absolute in a worktree and under `commit -a` — and inherited, they aim every git call here at
+# the repo being committed, not the throwaway one: fixtures staged into the real commit ("invalid
+# object ... for 'README.md'" when the blob is missing, silent when it isn't), and in a worktree
+# the fixture branches, a `t <t@t>` identity and core.bare = true written into the real repo. So
+# the process drops every GIT_* variable once, here, and every child inherits that. A per-call
+# env= is opt-in, and opt-in is how one call (merge-tree) went without it.
+for k in [k for k in os.environ if k.startswith("GIT_")]:
+    del os.environ[k]
+os.environ.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+                  GIT_TERMINAL_PROMPT="0")
 
 
 def git(repo, *a):
-    r = subprocess.run(("git",) + a, cwd=repo, capture_output=True, text=True, env=GIT_ENV)
+    r = subprocess.run(("git",) + a, cwd=repo, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(a)}: {r.stderr.strip()}")
     return r.stdout
@@ -64,7 +73,7 @@ def new_repo(tmp, v="app-v32"):
 
 def run(repo, ref="main"):
     r = subprocess.run([sys.executable, LINT, "--base", ref], cwd=repo,
-                       capture_output=True, text=True, env=GIT_ENV)
+                       capture_output=True, text=True)
     return r.returncode, r.stdout.strip()
 
 
@@ -73,6 +82,13 @@ def case(name, got, want, extra=""):
     print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f" — {extra}" if extra else ""))
     if not ok:
         fails.append(name)
+
+
+# The child half of HERMETIC UNDER A HOOK below: build one repo through the real helpers, stop.
+if sys.argv[1:] == ["--hook-probe"]:
+    with tempfile.TemporaryDirectory() as t:
+        new_repo(t)
+    sys.exit(0)
 
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -235,8 +251,19 @@ with tempfile.TemporaryDirectory() as tmp:
     case("...and names the fix", "fetch-depth" in out, True)
 
     code = subprocess.run([sys.executable, LINT, "--base"], cwd=repo,
-                          capture_output=True, text=True, env=GIT_ENV).returncode
+                          capture_output=True, text=True).returncode
     case("--base with no ref is an error, not a silent pass", code, 1)
+
+    # --- HERMETIC UNDER A HOOK -------------------------------------------------------------------
+    # Rerun this script with the environment a worktree's pre-commit hands it, aimed at a decoy.
+    # Without the strip at the top, the child's git init and base commit land in the decoy.
+    decoy = tempfile.mkdtemp(dir=tmp)
+    hooked = {**os.environ, "GIT_DIR": os.path.join(decoy, ".git"),
+              "GIT_INDEX_FILE": os.path.join(decoy, "index"), "GIT_WORK_TREE": decoy}
+    r = subprocess.run([sys.executable, os.path.abspath(__file__), "--hook-probe"],
+                       capture_output=True, text=True, env=hooked)
+    case("a hook's GIT_DIR / GIT_INDEX_FILE do not reach past the temp repo",
+         (r.returncode, os.listdir(decoy)), (0, []), r.stderr.strip()[-200:])
 
     # --- THE SHIPPED SCRIPT AGREES WITH THE SHIPPED sw.js ----------------------------------------
     # Not a scenario: the parser reads THIS repo's real SHELL block, so a reformat that breaks
