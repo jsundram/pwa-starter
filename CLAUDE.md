@@ -814,20 +814,15 @@ A browser test or screenshot harness has two more rules in a Claude session on a
   - **A local server needs `sandbox.network.allowLocalBinding: true`** in Claude Code's settings, or
     `http.server` fails to bind with `Operation not permitted`. That is a per-machine setting, not
     something the repo can carry.
-- **Playwright: latest by default, and one browser cache.** Each Playwright release drives exactly
-  one browser build, so a version pin is really a pin on whichever build happens to be downloaded —
-  and it breaks silently the day that build is cleaned up (mbta-glx's `==1.61.0` did). So:
+- **Playwright: latest by default, and the cache path from the environment.** Each Playwright
+  release drives exactly one browser build, so a version pin is really a pin on whichever build
+  happens to be downloaded — and it breaks silently the day that build is cleaned up (mbta-glx's
+  `==1.61.0` did). So:
   - **Don't pin Playwright** (`uv run --with playwright`, `"playwright": "^x"`) unless something
     specific needs it, and say what in a comment beside the pin. CI installs its own browsers.
-  - **When a launch fails with "Executable doesn't exist", install, don't downgrade:**
-    `playwright install chromium-headless-shell` (Python) or `npx playwright install
-    chromium-headless-shell` (Node).
-  - **Respect `PLAYWRIGHT_BROWSERS_PATH`; never hardcode a cache path.** It points every project
-    (and Claude Code, via the `env` block of its settings) at one cache — `~/.cache/ms-playwright`
-    here, which the sandbox can write, unlike the default `~/Library/Caches/ms-playwright`. A
-    harness that globs for a browser itself must read the variable, and must look for the macOS
-    layout too (`chrome-headless-shell-mac-arm64`), not only `chrome-linux`. Two caches on one
-    machine had grown to 3.6 GB of mostly orphaned builds.
+  - **Respect `PLAYWRIGHT_BROWSERS_PATH`; never hardcode a cache path.** The machine decides where
+    browsers live. A harness that globs for a browser itself must read the variable, and must look
+    for the macOS layout too (`chrome-headless-shell-mac-arm64`), not only `chrome-linux`.
 
 ### Testing without a build — `package.json` as a dev-only harness
 A no-build app can still have real tests — the trick is keeping the harness *off* the deployed site.
@@ -895,8 +890,8 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
   `SANDBOX_RUNTIME=1` on macOS, one browser context, third-party requests stubbed, a `$TMPDIR`
   mktemp template; see §Reproducible dev environment.
 - **Pinned Playwright** → the pin outlives the browser build it needs, and the harness stops
-  finding a browser. Latest by default, one cache via `PLAYWRIGHT_BROWSERS_PATH`; see
-  §Reproducible dev environment.
+  finding a browser. Latest by default, and read the cache path from `PLAYWRIGHT_BROWSERS_PATH`;
+  see §Reproducible dev environment.
 - **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
 - **SW cached a 404/502 body** → `fetch()` resolves on an HTTP error, so an ungated `c.put()` overwrites
