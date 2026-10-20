@@ -776,44 +776,9 @@ The full human-readable dependency table lives in the README's *Toolchain* secti
 them — but they pull no packages, so plain `python3` works identically; uv is a convenience, not a
 requirement.
 
-A browser test or screenshot harness has two more rules in a Claude session on a Mac:
-- **A browser harness must run inside Claude Code's macOS sandbox, not around it.** A harness that
-  only works unsandboxed gets retried outside the sandbox on every run: a permission prompt each
-  time, and the browser running with no containment. quartet-composers had piled up hundreds of
-  those before it was fixed (quartet-composers#120, lissajous-tuner#2). Several things stop a
-  headless Chrome in there, and each fails with a symptom pointing somewhere else:
-  - **Chrome aborts at startup** (`bootstrap_check_in ... MachPortRendezvousServer: Permission
-    denied`). On macOS Chrome registers a Mach service so its helper processes can find the browser,
-    and the sandbox forbids registering one. `--single-process` has no helpers and skips it. Add it
-    **only when `SANDBOX_RUNTIME=1` and the OS is macOS**, so CI and a plain run keep testing the
-    multi-process browser people use: `[ "${SANDBOX_RUNTIME:-}" = 1 ] && [ "$(uname)" = Darwin ]`
-    in shell, `process.env.SANDBOX_RUNTIME === "1" && process.platform === "darwin"` in Node,
-    `os.environ.get("SANDBOX_RUNTIME") == "1" and sys.platform == "darwin"` in Python. In
-    Playwright that is `chromium.launch(args=["--single-process"])`.
-  - **Single-process Chrome holds ONE browser context**, and a second one crashes it
-    (`TargetClosedError`) — even after the first is closed. In Playwright every
-    `browser.new_page()` quietly makes a new context, so a harness that calls it per scenario dies
-    on the second. Two ways out. Where scenarios need no isolation, make one
-    `ctx = browser.new_context()` and call `ctx.new_page()`. Where they rely on a fresh context
-    (`localStorage`, cookies), launch a separate browser per scenario instead: two single-process
-    browsers run side by side fine, each holding its one context, and isolation is kept for the
-    cost of a launch.
-  - **The page cannot reach the internet.** Chrome ignores the sandbox's HTTP proxy, so every
-    outside host fails with `ERR_NAME_NOT_RESOLVED` — and a check that counts console errors goes
-    red on analytics or a CDN it isn't testing. Answer third-party requests in the harness
-    (`page.route(...)` → an empty body) rather than allowing hosts. Serving the app locally is what
-    a harness should be doing anyway.
-  - **Use Playwright's `chrome-headless-shell`, not `/Applications/Google Chrome.app`.** Full branded
-    Chrome also starts a crash reporter and takes a profile lock in the per-user temp directory,
-    both of which the sandbox refuses, and `--single-process` does not get it past either.
-    `chromium.launch()` in headless mode already picks the shell.
-  - **Bare `mktemp -d` on macOS ignores `$TMPDIR`** and writes to the per-user temp directory, which
-    the sandbox refuses — so a harness's work directory comes back empty and the failure surfaces
-    later, as a server that "never took its port". Name the template:
-    `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"`.
-  - **A local server needs `sandbox.network.allowLocalBinding: true`** in Claude Code's settings, or
-    `http.server` fails to bind with `Operation not permitted`. That is a per-machine setting, not
-    something the repo can carry.
+For a browser test or screenshot harness:
+- **Running it in Claude Code's macOS sandbox** has failure modes of its own (Chrome's startup, one
+  browser context, no outside network); quartet-composers#120 and lissajous-tuner#2 are the fixes.
 - **Playwright: latest by default, and the cache path from the environment.** Each Playwright
   release drives exactly one browser build, so a version pin is really a pin on whichever build
   happens to be downloaded — and it breaks silently the day that build is cleaned up (mbta-glx's
@@ -885,10 +850,6 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Webfont not in the SW cache** → offline opens fall back to system serif.
 - **Testing a fix on an installed PWA** → you're fighting the SW cache, not your code. Test the working
   tree in a Safari **Private tab** (no SW registration) via `ngrok`; see §Testing without a build.
-- **Browser harness that only works unsandboxed** → every Claude Code run on a Mac fails, is retried
-  outside the sandbox, and prompts for permission. Headless shell + `--single-process` when
-  `SANDBOX_RUNTIME=1` on macOS, one browser context, third-party requests stubbed, a `$TMPDIR`
-  mktemp template; see §Reproducible dev environment.
 - **Pinned Playwright** → the pin outlives the browser build it needs, and the harness stops
   finding a browser. Latest by default, and read the cache path from `PLAYWRIGHT_BROWSERS_PATH`;
   see §Reproducible dev environment.
