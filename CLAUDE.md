@@ -776,24 +776,7 @@ The full human-readable dependency table lives in the README's *Toolchain* secti
 them — but they pull no packages, so plain `python3` works identically; uv is a convenience, not a
 requirement.
 
-### Testing without a build — `package.json` as a dev-only harness
-A no-build app can still have real tests — the trick is keeping the harness *off* the deployed site.
-AKM keeps a `package.json` whose own description says it plainly ("the site itself is static, this is
-just the test harnesses"): `private: true`, a `playwright-core` devDependency, and `node` test scripts
-— **no bundler, no build step reaches the shipped files.** The site stays hand-written; the tests are
-tooling that never deploys (same segregation as `scripts/`). Two patterns worth stealing:
-- **Network-gate any test that hits live data — skip (exit 0), don't fail, when it's unreachable.**
-  AKM's tests that read the live Google Sheet exit cleanly offline or in a locked-down sandbox instead
-  of going red, so "no network" never reads as "broken" (same idea as `setup-environment.sh` being
-  non-fatal). Pure-logic tests run off a committed fixture and pass anywhere; PII-bearing data gets no
-  committed fixture, so its tests are live-only and gated.
-- **Test the *working tree* on a real phone before pushing — a Node/Playwright harness can't see a
-  touchscreen.** Touch-only bugs (a `click`/`pointerdown`/`touchstart` handler that only misfires on
-  iOS — see the double-fire gotcha in §Mobile) need a real device. AKM's method: `python3 -m http.server
-  8000 --bind 0.0.0.0` + `ngrok http 8000` for a public HTTPS URL, opened in an **iOS Safari Private
-  tab — which doesn't register the service worker, so nothing caches** and every reload is the latest
-  code. That last bit is the point: it rules out "is this my fix or a stale SW?" at the same time, the
-  question that otherwise eats an hour on any installed PWA.
+A browser test or screenshot harness has two more rules in a Claude session on a Mac:
 - **A browser harness must run inside Claude Code's macOS sandbox, not around it.** A harness that
   only works unsandboxed gets retried outside the sandbox on every run: a permission prompt each
   time, and the browser running with no containment. quartet-composers had piled up hundreds of
@@ -846,6 +829,25 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
     layout too (`chrome-headless-shell-mac-arm64`), not only `chrome-linux`. Two caches on one
     machine had grown to 3.6 GB of mostly orphaned builds.
 
+### Testing without a build — `package.json` as a dev-only harness
+A no-build app can still have real tests — the trick is keeping the harness *off* the deployed site.
+AKM keeps a `package.json` whose own description says it plainly ("the site itself is static, this is
+just the test harnesses"): `private: true`, a `playwright-core` devDependency, and `node` test scripts
+— **no bundler, no build step reaches the shipped files.** The site stays hand-written; the tests are
+tooling that never deploys (same segregation as `scripts/`). Two patterns worth stealing:
+- **Network-gate any test that hits live data — skip (exit 0), don't fail, when it's unreachable.**
+  AKM's tests that read the live Google Sheet exit cleanly offline or in a locked-down sandbox instead
+  of going red, so "no network" never reads as "broken" (same idea as `setup-environment.sh` being
+  non-fatal). Pure-logic tests run off a committed fixture and pass anywhere; PII-bearing data gets no
+  committed fixture, so its tests are live-only and gated.
+- **Test the *working tree* on a real phone before pushing — a Node/Playwright harness can't see a
+  touchscreen.** Touch-only bugs (a `click`/`pointerdown`/`touchstart` handler that only misfires on
+  iOS — see the double-fire gotcha in §Mobile) need a real device. AKM's method: `python3 -m http.server
+  8000 --bind 0.0.0.0` + `ngrok http 8000` for a public HTTPS URL, opened in an **iOS Safari Private
+  tab — which doesn't register the service worker, so nothing caches** and every reload is the latest
+  code. That last bit is the point: it rules out "is this my fix or a stale SW?" at the same time, the
+  question that otherwise eats an hour on any installed PWA.
+
 ---
 
 ## Gotchas grab-bag (each cost time once, across these repos)
@@ -891,10 +893,10 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Browser harness that only works unsandboxed** → every Claude Code run on a Mac fails, is retried
   outside the sandbox, and prompts for permission. Headless shell + `--single-process` when
   `SANDBOX_RUNTIME=1` on macOS, one browser context, third-party requests stubbed, a `$TMPDIR`
-  mktemp template; see §Testing without a build.
+  mktemp template; see §Reproducible dev environment.
 - **Pinned Playwright** → the pin outlives the browser build it needs, and the harness stops
-  finding a browser. Latest by default, one cache via `PLAYWRIGHT_BROWSERS_PATH`; see §Testing
-  without a build.
+  finding a browser. Latest by default, one cache via `PLAYWRIGHT_BROWSERS_PATH`; see
+  §Reproducible dev environment.
 - **CDN library (SheetJS, a chart lib) not cached** → installable via the manifest, but opens to a
   blank app on a plane. Precache the CDN URL in the SW or vendor a local copy (see §Offline).
 - **SW cached a 404/502 body** → `fetch()` resolves on an HTTP error, so an ungated `c.put()` overwrites
