@@ -16,6 +16,31 @@ one painful commit at a time. This turns that into a checklist.
 Not for: framework/SPA apps, anything with a real backend or auth, or large teams. The whole value
 is that it's small enough to hold in your head.
 
+## Where a thing goes
+
+Three destinations, and keeping them apart is what keeps this file short.
+
+**Here: rules.** What to do, and what breaks otherwise.
+
+**The commit and the issue: history.** What happened, when, and why — attached to the diff that
+did it. A commit message describes a moment, so it cannot go stale; a file describing the same
+thing can, and will. `git log -S`, `git blame` and `git log --grep` retrieve it precisely. Where a
+rule needs its incident to be understood, the incident stays in the commit and an issue number is
+the pointer.
+
+**A check: anything mechanical.** A count, a list, a threshold, a measured offset — because a
+check can go red and a sentence cannot. Where a rule here is enforced, name the enforcement
+instead of repeating the arithmetic.
+
+**Which means a number in this file is a RECORD or it is absent.** A record is a measurement that
+happened — a run, an audit, an experiment — and cannot go stale. Anything the repo recomputes can:
+a total, a list size, a suite's case count, a constant, a live statistic. Those are read off the
+thing that holds them.
+
+**And this file has a ceiling.** It is read in full before every session's first change, so its
+length is charged to all of them. Keep it readable in one sitting by someone who has never seen
+the repo.
+
 ---
 
 ## Workflow: New project ("make a new project based on pwa-starter")
