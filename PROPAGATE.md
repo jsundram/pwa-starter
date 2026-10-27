@@ -368,6 +368,20 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
 
 ---
 
+## styles.css
+
+- 498dd20  **`overscroll-behavior-y:none` belongs inside `@media (display-mode: standalone)`, never
+  bare on `body`.** In a browser tab it also switches off the browser's own pull-to-refresh
+  (Chrome on Android documents exactly that), and `pullToRefresh.js` only stands in when
+  installed, so a tab is left with no way to refresh. Move the declaration into the media query.
+  `styles.css` is design, not a stamped copy, so `check-downstream.py` can't see this one — check
+  by hand. Known affected: `AKM/index.html` (bare on `body`, in its inline styles),
+  `quartet-composers/styles.css` (bare on `body`), `mbta-glx` (fixed there in `53dd735`).
+  `lissajous-tuner/styles.css` has it bare too, but beside `overflow:hidden` on a one-screen
+  tuner that must not move — blocking a pull there may be deliberate; decide, don't just port.
+
+---
+
 ## .nojekyll
 
 - f54b770  **Add an empty `.nojekyll` to your repo root.** Without it GitHub Pages builds
