@@ -9,7 +9,7 @@
 // (foreground poll + resume re-pull + optional pull-to-refresh).
 
 const VER_PREFIX = "app-v";        // must match sw.js's V stem — and V's numeric tail is load-bearing
-const APP_V = "app-v10";            // THIS bundle's version. Must equal sw.js's V — scripts/sw-lint.py
+const APP_V = "app-v11";           // THIS bundle's version. Must equal sw.js's V — scripts/sw-lint.py
                                    // fails the commit on drift. checkVer() compares against it, because
                                    // a cache key describes storage, not the code that is running.
 const DATA_URL = "";               // <-- your cross-origin data endpoint (empty = disabled, like ping.js)

@@ -394,6 +394,12 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
   `quartet-log/src/pullToRefresh.js` — the independent ancestor, so no stamp will flag it — has
   the `touchcancel` bug only (quartet-log#64). Its `startsInScroller()` already covers the other
   half, more broadly: it refuses a pull that starts in any box that *can* scroll, scrolled or not.
+- 872203f  **A touchstart that bails must `_reset()`, not just clear `startY`.** A second finger
+  landing in a scrolled box mid-pull takes `_onStart`'s bail, and `_onMove`/`_onEnd` both
+  early-return on a null `startY`, so nothing clears the indicator: it stays half-pulled on screen
+  until the next full pull. Replace `{ this.startY = null; return; }` with
+  `{ this._reset(); return; }`. Pulled back from `quartet-log`, which has always done this.
+  Known affected: `mbta-glx` (the stamp will flag it).
 
 ---
 
