@@ -21,11 +21,14 @@ html{ -webkit-text-size-adjust:100% }   /* stop iOS inflating text on rotate */
 body{
   background:var(--bg); color:var(--ink);
   font-family:system-ui, -apple-system, "Segoe UI", sans-serif; line-height:1.45;
-  overscroll-behavior-y:none;             /* kill the rubber-band bounce in standalone */
   /* safe-area padding: real gaps on notched phones, 0 elsewhere */
   padding:calc(20px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
           calc(28px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
 }
+/* Kill the rubber-band bounce in the INSTALLED app only. On body in a browser tab it also switches
+   off the browser's own pull-to-refresh (Chrome on Android documents exactly that), and
+   pullToRefresh.js only replaces it in standalone — so a tab would be left with no refresh at all. */
+@media (display-mode: standalone){ body{ overscroll-behavior-y:none } }
 main{ max-width:var(--maxw); margin:0 auto }   /* mobile-first: full-width phone, capped desktop */
 
 .head{ display:flex; align-items:baseline; gap:10px; margin-bottom:16px }

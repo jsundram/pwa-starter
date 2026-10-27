@@ -193,7 +193,9 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] `color-scheme: light dark` meta (no white flash before CSS)
 - [ ] Touch targets ≥ ~44px; nothing overflows a 375px screen
 - [ ] **Any hover-only UI (tooltips, popovers) has a tap fallback** — hover doesn't exist on touch
-- [ ] `overscroll-behavior-y:none` if you don't want the standalone rubber-band bounce
+- [ ] `overscroll-behavior-y:none` if you don't want the standalone rubber-band bounce — **inside
+  `@media (display-mode: standalone)`**, never bare on `body`: in a browser tab it also switches off
+  the browser's own pull-to-refresh, and `pullToRefresh.js` only stands in for it when installed
 
 **Dark mode** — `styles.css`
 - [ ] `@media (prefers-color-scheme: dark)` overrides (follows the OS)
