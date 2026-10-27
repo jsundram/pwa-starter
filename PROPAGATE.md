@@ -61,6 +61,7 @@ changes to the no-build deployed files.
 |---|---|
 | `haydn-info-card/web/app.js`, `quartets.boccherini.org/app.js` | 59 lines: `VER_PREFIX` + `checkVer` + `forceUpdate` only. No `render`/`paint`/`showStale`/data layer. |
 | `gallery-deck/web/public/app.js` | 479 lines of its own app, with the same version-tag block grafted in. |
+| `mbta-glx/web/pwa.js` | The service-worker slice of `app.js` — `VER_PREFIX` + `APP_V`, `checkVer`, `forceUpdate`, `requestShellTopUp` and their boot wiring — in a file of its own; its `app.js` never had the block. Discovery-only in `check-downstream.py`, like `updateChecker.js`: `pwa.js` isn't a file we own, so it can't be stamped. Had the `APP_V` fix (`#17`) from the start. |
 
 A file-level stamp on these is worse than none: it would report them behind every `app.js` commit
 regardless of whether the change touched the ~20 lines they actually took, and `app.js` is the file
@@ -390,6 +391,9 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
   refresh on top of the first. Guard it with `if (!this.refreshing)`; `_trigger()` resets once
   `onRefresh` settles. (One bullet for both: `check-downstream.py` keys entries by sha.)
   Known affected: `mbta-glx` (both fixed there in `53dd735`; re-stamp at this commit).
+  `quartet-log/src/pullToRefresh.js` — the independent ancestor, so no stamp will flag it — has
+  both bugs: no scrolled-box check, and an unguarded `touchcancel` reset. Port by hand; the
+  scrolled-box half only matters if it has a scrolling box inside a page at the top.
 
 ---
 
