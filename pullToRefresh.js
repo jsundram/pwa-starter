@@ -8,12 +8,16 @@
 // double-fires with the browser's native PTR.
 //
 // The fiddly bits it gets right (the reason this is a file, not three lines):
-//   - only starts a pull when the page is scrolled to the very top;
+//   - only starts a pull when the page is scrolled to the very top — and the touch is not
+//     inside a box that is itself scrolled down (an overflow:auto list, a table), where a
+//     downward drag is that box scrolling back up, not a pull;
 //   - bails if the page starts scrolling mid-gesture (a real scroll, not a pull);
 //   - touchmove is passive:false so it can preventDefault the iOS rubber-band
 //     during an active pull — but only then;
 //   - a damping factor maps pulled distance to a smaller visual offset so it
-//     feels rubber-banded rather than 1:1.
+//     feels rubber-banded rather than 1:1;
+//   - a touchcancel that lands while onRefresh is still running leaves it running:
+//     the spinner stays up, and a second pull can't start a refresh on top of it.
 //
 // Loaded as a classic script before app.js; exposes a global `PullToRefresh`.
 // Styling lives in styles.css (#ptr-indicator / .ptr-spinner).
@@ -40,7 +44,9 @@ window.PullToRefresh = class {
     // passive:false so _onMove can preventDefault during an active pull only.
     document.addEventListener("touchmove", e => this._onMove(e), { passive: false });
     document.addEventListener("touchend", () => this._onEnd(), { passive: true });
-    document.addEventListener("touchcancel", () => this._reset(), { passive: true });
+    // Not mid-refresh: _reset() clears `refreshing`, and the next pull would start a second
+    // onRefresh on top of the first. _trigger() resets once onRefresh settles.
+    document.addEventListener("touchcancel", () => { if (!this.refreshing) this._reset(); }, { passive: true });
   }
 
   _createIndicator() {
@@ -53,9 +59,16 @@ window.PullToRefresh = class {
 
   _scrollTop() { return window.scrollY || document.documentElement.scrollTop || 0; }
 
+  // The page can be at the very top while a box inside it is scrolled down. A downward drag
+  // there scrolls that box back up; claiming it as a pull would preventDefault the scroll.
+  _inScrolledBox(el) {
+    for (; el && el !== document.body; el = el.parentElement) if (el.scrollTop > 0) return true;
+    return false;
+  }
+
   _onStart(e) {
     if (this.refreshing) return;
-    if (this._scrollTop() > 0) { this.startY = null; return; }  // only from the top
+    if (this._scrollTop() > 0 || this._inScrolledBox(e.target)) { this.startY = null; return; }  // only from the top
     this.startY = e.touches[0].clientY;
     this.currentPull = 0;
   }
