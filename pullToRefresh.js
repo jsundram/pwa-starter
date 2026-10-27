@@ -68,7 +68,10 @@ window.PullToRefresh = class {
 
   _onStart(e) {
     if (this.refreshing) return;
-    if (this._scrollTop() > 0 || this._inScrolledBox(e.target)) { this.startY = null; return; }  // only from the top
+    // Only from the top. _reset() rather than just clearing startY: a second finger landing in a
+    // scrolled box mid-pull bails here, and _onMove/_onEnd early-return on a null startY, which
+    // would strand the half-pulled indicator on screen. (Ported from quartet-log, the ancestor.)
+    if (this._scrollTop() > 0 || this._inScrolledBox(e.target)) { this._reset(); return; }
     this.startY = e.touches[0].clientY;
     this.currentPull = 0;
   }
