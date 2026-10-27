@@ -190,13 +190,22 @@ def commits_since(sha, fname):
 # time loses to an open-ended set of plausible renames. So: one canonical spelling per file,
 # written down in PROPAGATE.md, plus this near-miss check so a violation surfaces instead of
 # vanishing. Normalizing _ to - catches the case that actually happened; it is a convention
-# guard, not a search. (#15)
+# guard, not a search. (#15) The name alone only nominates: main() reports a near-miss as
+# MISNAMED only if it carries our stamp or one of the canonical file's fingerprints, since this
+# exits non-zero and an unrelated sw_lint.py in some other repo must not fail the scan.
 def canonical_for(fname):
     """The name we own that `fname` is a near-miss of, or None."""
     if fname in FINGERPRINTS:
         return None
     norm = fname.replace("_", "-")
     return norm if norm in FINGERPRINTS and norm != fname else None
+
+
+def fingerprinted(path, fname):
+    """Does the file at `path` carry any of `fname`'s fingerprints? Reads the whole file, and ANY
+    match is enough: a copy may have moved things around or renamed the one landmark we picked."""
+    body = open(path, encoding="utf-8", errors="replace").read()
+    return any(fp in body for fp in FINGERPRINTS[fname])
 
 
 def walk(roots):
@@ -280,18 +289,17 @@ def main():
         if canon:
             # Misnamed, not unknown: report it as a convention violation rather than tracking it.
             # Renaming is the fix — discovery is name-addressed, so the copy is invisible to every
-            # future scan until it is spelled the way PROPAGATE.md says.
-            misnamed.append((path, canon))
+            # future scan until it is spelled the way PROPAGATE.md says. Only if it is ours,
+            # though: a near-miss name with neither our stamp nor a fingerprint is someone else's.
+            if STAMP.search(head(path)) or fingerprinted(path, canon):
+                misnamed.append((path, canon))
             continue
         text = head(path)
         m = STAMP.search(text)
         if not m:
-            # Unstamped: is it recognizably ours? Read the whole file and accept ANY of the
-            # file's fingerprints, since a copy may have moved things around or renamed the one
-            # landmark we happened to pick. Discovery-only hits get their own bucket — the
+            # Unstamped: is it recognizably ours? Discovery-only hits get their own bucket — the
             # generic one ends in a --stamp suggestion these must always refuse.
-            body = open(path, encoding="utf-8", errors="replace").read()
-            if any(fp in body for fp in FINGERPRINTS[fname]):
+            if fingerprinted(path, fname):
                 (discovered if fname in DISCOVER_ONLY else candidates).append(path)
             continue
         if fname in DISCOVER_ONLY:

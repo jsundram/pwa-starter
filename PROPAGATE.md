@@ -80,7 +80,9 @@ That is not hypothetical: `sw_lint.py` — underscore — hid a real copy in **t
 (`quartets.boccherini.org/tools/`, `haydn-info-card/src/`) through the whole of `#17`, while both
 carried the bug. Widening fingerprints cannot fix it and neither can adding names one at a time;
 the set of plausible renames is open. So there is one spelling per file, and `check-downstream.py`
-reports a **near-miss basename** (`_` where we use `-`) as MISNAMED rather than letting it vanish.
+reports a **near-miss basename** (`_` where we use `-`) as MISNAMED rather than letting it vanish —
+when it carries our stamp or one of the canonical file's fingerprints. The name only nominates; an
+unrelated `sw_lint.py` in someone else's repo is not ours and must not fail the scan.
 
 | Canonical | Not |
 |---|---|
