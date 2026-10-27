@@ -392,8 +392,8 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
   `onRefresh` settles. (One bullet for both: `check-downstream.py` keys entries by sha.)
   Known affected: `mbta-glx` (both fixed there in `53dd735`; re-stamp at this commit).
   `quartet-log/src/pullToRefresh.js` — the independent ancestor, so no stamp will flag it — has
-  both bugs: no scrolled-box check, and an unguarded `touchcancel` reset. Port by hand; the
-  scrolled-box half only matters if it has a scrolling box inside a page at the top.
+  the `touchcancel` bug only (quartet-log#64). Its `startsInScroller()` already covers the other
+  half, more broadly: it refuses a pull that starts in any box that *can* scroll, scrolled or not.
 
 ---
 
