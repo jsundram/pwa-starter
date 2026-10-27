@@ -352,6 +352,22 @@ whether the entries above ever landed, so a gap in it is a gap in all of them.
 
 ---
 
+## pullToRefresh.js
+
+- b9c0ce5  **A pull must not start inside a scrolled box.** `_onStart` checked only the window's
+  scroll position, so with the page at the top and the touch inside an `overflow:auto` box that
+  is itself scrolled down, the downward drag that scrolls that box back up was claimed as a pull:
+  `_onMove` `preventDefault()`s the scroll, and past the threshold a refresh fires instead. Port
+  `_inScrolledBox()` and its use in `_onStart`. Matters to any app with a scrolling list, table
+  or panel inside a page that can sit at the top. **The same commit: `touchcancel` must not
+  reset a refresh in flight.** It called `_reset()` unconditionally, which clears `refreshing`
+  and hides the spinner while `onRefresh` is still running, so the next pull starts a second
+  refresh on top of the first. Guard it with `if (!this.refreshing)`; `_trigger()` resets once
+  `onRefresh` settles. (One bullet for both: `check-downstream.py` keys entries by sha.)
+  Known affected: `mbta-glx` (both fixed there in `53dd735`; re-stamp at this commit).
+
+---
+
 ## .nojekyll
 
 - f54b770  **Add an empty `.nojekyll` to your repo root.** Without it GitHub Pages builds
