@@ -90,9 +90,11 @@ SHARED = {
 # the PROPAGATE.md tables explain each copy by hand. quartet-log's app.js split moved its
 # version-tag region into updateChecker.js (the "split it into its own file" move the
 # partial-adopters note prescribes); without this entry the region silently vanishes from
-# the scan the moment a fingerprint leaves a basename we own.
+# the scan the moment a fingerprint leaves a basename we own. mbta-glx's pwa.js is the same
+# region again, vendored rather than reimplemented: its app.js never carried the block at all.
 DISCOVER_ONLY = {
     "updateChecker.js": (None, ("VER_PREFIX", "forceUpdate")),   # no upstream path, by definition
+    "pwa.js": (None, ("VER_PREFIX", "requestShellTopUp", "forceUpdate")),
 }
 PATHS = {k: v[0] for k, v in {**SHARED, **DISCOVER_ONLY}.items()}
 FINGERPRINTS = {k: v[1] for k, v in {**SHARED, **DISCOVER_ONLY}.items()}
