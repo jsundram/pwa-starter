@@ -44,7 +44,7 @@ into *their* app. Do this in order:
    | `#f5f5f5` / `#1a1a1a` / `#2196f3` | real palette | styles.css vars, theme-color metas, manifest colors, sw.js `offlineFallback()` (inline by necessity — it renders when styles.css is unreachable) |
    | `app-v` | cache prefix (optional) | sw.js `V` **and** app.js `VER_PREFIX` **and** app.js `APP_V` (all three, keep in sync!) — rename the *stem* only; the **numeric tail is load-bearing** (it makes sw.js's collect directional; sw-lint enforces it) |
    | `app-token` | a random token | ping.js + scripts/analytics.gs (must match) |
-   | `app-pings` / `app-me` / `app-usage` | localStorage keys (optional rename) | ping.js, usage/index.html |
+   | `app-pings` / `app-me` / `app-usage` / `app-install-hint` | localStorage keys (optional rename) | ping.js, usage/index.html, installHint.js |
    | `app-theme` / `app-data:` | localStorage keys (optional rename) | theme.js **and** index.html pre-paint script (keep in sync!); data.js |
    | `DATA_URL` empty | your cross-origin data endpoint | app.js (empty = disabled, like ping.js's `URL_`) |
 
@@ -90,8 +90,9 @@ stays relative). Everything that is *not* shipped to the browser is segregated:
 
 - **Root** = the app: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `ping.js`, and
   three small reference helpers `app.js` wires together — `theme.js` (three-state theme + the
-  JS-baked-color contract), `data.js` (stale-while-revalidate with a timeout), and the optional
-  `pullToRefresh.js` (standalone-only gesture; delete it + its CSS if unused).
+  JS-baked-color contract), `data.js` (stale-while-revalidate with a timeout), and two optional
+  ones: `pullToRefresh.js` (standalone-only gesture) and `installHint.js` (browser-tab-only "add
+  to Home Screen" banner). Delete either + its CSS if unused.
 - **`assets/`** = icons + share card. `icon.svg`/`og.svg` are the **sources of truth**; the PNGs
   are generated, never hand-edited.
 - **`usage/`** = the self-contained analytics dashboard (its own page, precached, `noindex`).
@@ -133,6 +134,9 @@ automated audit grades a PWA anymore. This checklist *is* the audit. (A service 
 - [ ] `manifest.json` linked: `name`, `short_name`, `start_url:"./"`, `display:"standalone"`, icons incl. a `maskable`
 - [ ] `apple-mobile-web-app-capable` + `-title` metas (iOS ignores the manifest)
 - [ ] `theme-color`, one per color scheme
+- [ ] Visitors are **told how to install** (optional `installHint.js`) — iOS never offers it — and
+  on iOS told to install **before** saving anything, since the Home Screen app has its own storage.
+  An app that asks for a name or settings up front calls `InstallHint.show()` right before asking
 
 **Offline / cache-busting** — `sw.js`, `app.js`, `scripts/sw-lint.py`
 - [ ] Service worker registered + precaching the shell (`SHELL` lists every offline-needed file)
@@ -512,6 +516,35 @@ before shipping — it's a GUI eyeball-check, not something `make-icons.sh` can 
 installed copy opens `start_url` many times — so the page you want opened *daily* should be the root,
 and a "read once" invite/about page should be a *separate* URL you send, not the root.
 
+**Tell people how to install — the browser mostly won't.** A manifest makes the app installable;
+it doesn't make anyone install it. How each platform behaves:
+- **iOS / iPadOS** offers nothing and lets a page ask for nothing. The only path is Share → Add to
+  Home Screen, and in iOS 26 Share sits under Safari's `•••` button. So the page has to say it.
+- **Chromium** (Android, desktop Chrome/Edge) fires `beforeinstallprompt` once the manifest
+  qualifies. Keep the event (`preventDefault()`) and your own Install button can open the
+  browser's dialog.
+- **Desktop** already shows an install icon in the address bar, and a laptop gains little, so
+  don't nag there.
+
+`installHint.js` does exactly this. It shows a bottom banner in a browser tab only — never once
+installed — with "Not now" remembered in localStorage, and `{ desktop: true }` to offer it on
+desktop Chromium too.
+
+The part that cost a rehearsal: **on iOS the Home Screen app gets its own storage**, separate
+from Safari's. Players opened the link in Safari, typed their names, then added the app: the
+installed copy started with no name, and the Safari copy kept the old one. The iOS hint therefore says
+to install *first*. An app that asks for anything up front should pass `{ auto: false }` and call
+`InstallHint.show()` just before it asks; that call shows the banner even after "Not now". Android's
+installed copy shares Chrome's storage, so the note is iOS-only.
+
+Why a 100-line file and not
+[philfung/add-to-homescreen](https://github.com/philfung/add-to-homescreen) (MIT, polished,
+per-browser illustrated guides, 20+ languages)? It's an npm package carrying all its locales,
+against this skeleton's no-build, zero-runtime-dependency premise. And it is generic about *when*
+to ask, while the storage split makes the moment the thing that matters. Reach for it when the
+audience is the public in many languages, or many arrive through in-app browsers (Instagram,
+Facebook) that can't install at all. `installHint.js` doesn't handle those.
+
 **Seed per-device config with a link, not a re-typed form.** A no-backend app that needs a scrap of
 setup (an API key, a data-source URL) faces an awful phone UX: retype it on a tiny keyboard. Instead,
 read a `?data=…`/`?key=…` param on first load, persist it to `localStorage`, then strip it from the
@@ -873,6 +906,9 @@ tooling that never deploys (same segregation as `scripts/`). Two patterns worth 
 - **Hover-only tooltip** → invisible on every phone. Give it a tap path — and mind the touch
   double-fire (tap = `mouseover` + `click`); see the kernel snippet in §Mobile.
 - **Manifest but no `apple-*` metas** → Android installs clean, iOS install looks broken.
+- **Set up in Safari, then added to the Home Screen** → on iOS the installed app has its own
+  storage, so the name/settings saved in Safari aren't there, and the person now has two copies
+  that disagree. Install first; `installHint.js` says so (§Manifest / installability).
 - **Blank `name` / wrong-path icon in the manifest** → Android installs an unnamed app with a broken
   glyph. It fails silently (no build error); open the manifest and confirm every icon URL 200s.
 - **Transparent favicon reused as the `maskable` icon** → Android's mask crops into the artwork. Give

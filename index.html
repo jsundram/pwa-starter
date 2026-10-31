@@ -78,11 +78,12 @@
   </section>
 </main>
 
-<!-- Load order matters: theme/data/PTR expose globals that app.js uses.
-     pullToRefresh.js is OPTIONAL — delete it + its CSS if you don't want the gesture. -->
+<!-- Load order matters: theme/data/PTR/install hint expose globals that app.js uses.
+     pullToRefresh.js and installHint.js are OPTIONAL — delete either + its CSS if unwanted. -->
 <script src="./theme.js"></script>
 <script src="./data.js"></script>
 <script src="./pullToRefresh.js"></script>
+<script src="./installHint.js"></script>
 <script src="./ping.js"></script>   <!-- optional analytics; harmless until you set URL_ in it -->
 <script src="./app.js"></script>
 </body>

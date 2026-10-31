@@ -39,6 +39,7 @@ styles.css      design system — CSS variables, light + dark, responsive, print
 app.js          boot: SW registration + "you're on an old version, tap to update" tag
 sw.js           offline precache + the cache-busting version constant V
 manifest.json   installability
+installHint.js  optional: "add to Home Screen" banner in a browser tab (iOS steps; Chromium Install button)
 ping.js         optional: queue-offline usage pings → a private Google Sheet
 usage/          optional: a client-side dashboard that reads those pings back
 assets/         icon.svg + og.svg (sources) → run the scripts to rasterize
