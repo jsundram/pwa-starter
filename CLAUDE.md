@@ -33,6 +33,14 @@ into *their* app. Do this in order:
      delete `usage/`, `ping.js`, `scripts/analytics.gs`, and the `ping.js`/`usage/` lines from
      `sw.js` + the `<script src="./ping.js">` in `index.html`; for GoatCounter add its script tag
      (last, `async`).
+   - Does it **ask for anything at first run** (a name, settings)? The install hint is on by
+     default, and this decides when it shows (§Manifest / installability): on iOS the Home Screen
+     app keeps its own storage, so the hint has to come *before* the ask. If yes: `app.js` calls
+     `InstallHint.init({ auto: false })`, and the app calls `InstallHint.show()` right before
+     asking. If they want no hint at all: delete `installHint.js`, `scripts/installHint.test.mjs`,
+     the `#install-hint` CSS, the `./installHint.js` entry in `sw.js` (+ bump `V`), its
+     `<script>` in `index.html`, the `InstallHint.init()` line in `app.js`, and its step in
+     `.github/workflows/checks.yml`.
 2. **Replace the placeholders** (they're deliberately grep-able). Search the whole tree:
 
    | Placeholder | Becomes | Where |
