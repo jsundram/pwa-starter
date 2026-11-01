@@ -1,5 +1,5 @@
 // Install hint: a small banner that tells a visitor how to add the app to their Home Screen.
-// OPTIONAL — delete this file and its <script> + CSS if you don't want it.
+// OPTIONAL — to remove it, see CLAUDE.md's new-project step 1 for every place it is wired in.
 //
 // WHY: no browser advertises an installable page well, and iOS doesn't advertise it at all.
 //   - iOS / iPadOS: a page cannot install itself or even ask the browser to offer it. The only
