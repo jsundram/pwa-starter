@@ -29,7 +29,7 @@
 // Styling lives in styles.css (#install-hint).
 
 window.InstallHint = (() => {
-  const KEY = "app-install-hint";   // localStorage: set once the visitor taps "Not now" or installs
+  const KEY = "app-install-hint";   // localStorage: set on "Not now" (banner or dialog) or install
   const STR = {                     // EDIT wording here; NAME is the Home Screen label
     ios: "Install NAME: tap Share (or ••• then Share), then Add to Home Screen.",
     iosNote: "Do it before you save anything here: the Home Screen app keeps its own storage, separate from Safari's.",
@@ -91,7 +91,9 @@ window.InstallHint = (() => {
     hide();
     if (!e) return;
     e.prompt();
-    try { if ((await e.userChoice).outcome === "accepted") remember("installed"); } catch {}
+    // Cancelling the browser's dialog counts as "Not now": Chrome fires beforeinstallprompt again
+    // on the next load, and without this the banner would come back on every visit.
+    try { remember((await e.userChoice).outcome === "accepted" ? "installed" : "later"); } catch {}
   }
 
   function hide() { if (el) { el.remove(); el = null; } }
