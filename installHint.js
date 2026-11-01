@@ -26,7 +26,7 @@
 // "open in Safari/Chrome" first. A link texted to a few people opens in the real browser.
 //
 // Loaded as a classic script before app.js; exposes a global `InstallHint`.
-// Styling lives in styles.css (#install-hint).
+// Styling lives in styles.css (#install-hint). Tests: node scripts/installHint.test.mjs.
 
 window.InstallHint = (() => {
   const KEY = "app-install-hint";   // localStorage: set on "Not now" (banner or dialog) or install
@@ -62,7 +62,8 @@ window.InstallHint = (() => {
     const p = document.createElement("p");
     if (kind === "ios") {
       p.innerHTML = STR.ios.replace("NAME", "<b></b>").replace("Share", "Share " + SHARE_ICON);
-      p.querySelector("b").textContent = name();   // textContent: the title is not markup
+      const b = p.querySelector("b");              // absent if the wording dropped NAME: no name, no crash
+      if (b) b.textContent = name();               // textContent: the title is not markup
       const note = document.createElement("small");
       note.textContent = STR.iosNote;
       p.append(document.createElement("br"), note);

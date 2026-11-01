@@ -87,9 +87,9 @@ unrelated `sw_lint.py` in someone else's repo is not ours and must not fail the 
 
 | Canonical | Not |
 |---|---|
-| `sw.js`, `app.js`, `data.js`, `theme.js`, `ping.js`, `pullToRefresh.js` | — (already uniform fleet-wide) |
+| `sw.js`, `app.js`, `data.js`, `theme.js`, `ping.js`, `pullToRefresh.js`, `installHint.js` | — (already uniform fleet-wide) |
 | `sw-lint.py` | `sw_lint.py` |
-| `sw-lint.test.py`, `og-lint.py`, `sw.test.mjs` | — |
+| `sw-lint.test.py`, `og-lint.py`, `sw.test.mjs`, `installHint.test.mjs` | — |
 | `make-icons.sh`, `make-og.sh`, `pre-commit` | — |
 
 Directory is yours: `scripts/`, `tools/`, `src/`, `web/` all work. `hooks/` vs `.githooks/` is a

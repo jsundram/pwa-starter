@@ -84,6 +84,7 @@ SHARED = {
     "og-lint.py": ("scripts/og-lint.py", ("blob_size", "grey box")),
     "sw.test.mjs": ("scripts/sw.test.mjs", ("mocked Service Worker", "NET_TIMEOUT")),
     "sw-lint.test.py": ("scripts/sw-lint.test.py", ("--base check catches", "new_repo")),
+    "installHint.test.mjs": ("scripts/installHint.test.mjs", ("installHint.js UNMODIFIED", "beforeinstallprompt")),
 }
 
 # Tracked regions living under a DIFFERENT basename downstream. Discovery only: there is

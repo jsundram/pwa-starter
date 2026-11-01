@@ -15,5 +15,8 @@ python3 scripts/sw-lint.test.py >/dev/null 2>&1 || echo "  (warning only — sw-
 # absent (the toolchain is otherwise Python; node is only needed for these).
 if command -v node >/dev/null 2>&1; then
   node scripts/sw.test.mjs >/dev/null 2>&1 || echo "  (warning only — sw tests failed; run 'node scripts/sw.test.mjs' to see why)"
+  if [ -f installHint.js ]; then   # optional file; an app that deleted it has nothing to test
+    node scripts/installHint.test.mjs >/dev/null 2>&1 || echo "  (warning only — install hint tests failed; run 'node scripts/installHint.test.mjs' to see why)"
+  fi
 fi
 exit 0
