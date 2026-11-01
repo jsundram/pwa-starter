@@ -75,6 +75,7 @@ SHARED = {
     # not the localStorage key — that's meant to be renamed
     "ping.js": ("ping.js", ("APP_PAGE", "URL_")),
     "pullToRefresh.js": ("pullToRefresh.js", ("PullToRefresh",)),
+    "installHint.js": ("installHint.js", ("window.InstallHint", "iosNote")),
     # Tooling. Not shipped to the browser, but vendored just the same — and until now invisible:
     # these carry provenance stamps that nothing read, because the walk only yields basenames
     # listed here. #15 proposed pushing lint features downstream on the strength of a stamp that
@@ -83,6 +84,7 @@ SHARED = {
     "og-lint.py": ("scripts/og-lint.py", ("blob_size", "grey box")),
     "sw.test.mjs": ("scripts/sw.test.mjs", ("mocked Service Worker", "NET_TIMEOUT")),
     "sw-lint.test.py": ("scripts/sw-lint.test.py", ("--base check catches", "new_repo")),
+    "installHint.test.mjs": ("scripts/installHint.test.mjs", ("installHint.js UNMODIFIED", "beforeinstallprompt")),
 }
 
 # Tracked regions living under a DIFFERENT basename downstream. Discovery only: there is

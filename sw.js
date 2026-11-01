@@ -30,7 +30,7 @@
 // Get one wrong and the failure is a blank white screen offline, a lost offline copy, or a stale
 // one that never updates. The seven review rounds behind this design: #7.
 
-const V = "app-v11";   // <-- BUMP ON EVERY SHELL CHANGE (rename the stem freely; keep the digits)
+const V = "app-v12";   // <-- BUMP ON EVERY SHELL CHANGE (rename the stem freely; keep the digits)
 
 // "app-v" — the stem shared by every cache generation. app.js's VER_PREFIX must match it, and the
 // NUMERIC TAIL is load-bearing: it is what makes the collect below DIRECTIONAL (delete strictly
@@ -48,7 +48,8 @@ function verNum(name) {
 
 const SHELL = [
   "./", "./index.html", "./styles.css",
-  "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./ping.js", "./manifest.json",
+  "./app.js", "./theme.js", "./data.js", "./pullToRefresh.js", "./installHint.js", "./ping.js",
+  "./manifest.json",
   "./assets/icon.svg", "./assets/icon-180.png", "./assets/icon-192.png", "./assets/icon-512.png",
   "./usage/", "./usage/index.html", "./usage/crunch.js",
   // ...add every file the app needs offline: more pages, data JSON, self-hosted fonts.

@@ -17,6 +17,8 @@ name: checks
 #     REPORTS that rather than passing, which would fail every PR.
 #   - scripts/sw-lint.test.py  : proves the --base check catches that incident and nothing else,
 #     by building real throwaway repos with real branches.
+#   - node scripts/installHint.test.mjs : not sw.js, but the same no-dependency shape — when the
+#     optional install banner shows, per platform, and what it remembers. Delete with the file.
 #   - scripts/og-lint.py is NOT here for the same reason it can't be: it only inspects the staged
 #     OG card (`git diff --cached`), so in CI it has nothing to check. It stays a hook-only guard.
 
@@ -39,6 +41,8 @@ jobs:
         run: node --check sw.js
       - name: behavioral tests (scripts/sw.test.mjs)
         run: node scripts/sw.test.mjs
+      - name: install hint tests (scripts/installHint.test.mjs)
+        run: node scripts/installHint.test.mjs
       - name: precache lint (scripts/sw-lint.py)
         run: python3 scripts/sw-lint.py
       - name: --base check tests (scripts/sw-lint.test.py)
